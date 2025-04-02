@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   AppBar,
   Toolbar,
@@ -31,6 +31,7 @@ import logo from "../assets/logo.png";
 
 const Navbar = ({ user, onLogout }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState(null);
 
   const menuItems = [
@@ -77,6 +78,16 @@ const Navbar = ({ user, onLogout }) => {
 
   const handleMenuClose = () => {
     setAnchorEl(null);
+  };
+
+  const handleProfileClick = () => {
+    navigate("/profile");
+    handleMenuClose();
+  };
+
+  const handleChangePasswordClick = () => {
+    navigate("/change-password");
+    handleMenuClose();
   };
 
   const isActive = (path) => location.pathname === path;
@@ -149,7 +160,6 @@ const Navbar = ({ user, onLogout }) => {
           anchorEl={anchorEl}
           open={Boolean(anchorEl)}
           onClose={handleMenuClose}
-          onClick={handleMenuClose}
           PaperProps={{
             sx: {
               width: 250,
@@ -183,14 +193,14 @@ const Navbar = ({ user, onLogout }) => {
 
           <Divider />
 
-          <MenuItem>
+          <MenuItem onClick={handleProfileClick}>
             <ListItemIcon>
               <AccountCircle fontSize="small" />
             </ListItemIcon>
             Profile
           </MenuItem>
 
-          <MenuItem>
+          <MenuItem onClick={handleChangePasswordClick}>
             <ListItemIcon>
               <Lock fontSize="small" />
             </ListItemIcon>

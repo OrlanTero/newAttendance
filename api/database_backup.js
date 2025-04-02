@@ -1215,7 +1215,7 @@ const dbMethods = {
     });
   },
 
-  // Work schedule methods
+  // Add work schedule database methods
   getEmployeeWorkSchedule: (employeeId) => {
     return new Promise((resolve, reject) => {
       db.get(
@@ -1343,11 +1343,10 @@ const dbMethods = {
   },
 };
 
-// Export all database methods
+// Export all database methods directly - fix the export to ensure all methods are included
 module.exports = {
   initDatabase,
   db,
-  // User methods
   getAllUsers: dbMethods.getAllUsers,
   getUserById: dbMethods.getUserById,
   getUserByUsername: dbMethods.getUserByUsername,
@@ -1391,7 +1390,7 @@ module.exports = {
   updateAttendance: dbMethods.updateAttendance,
   deleteAttendance: dbMethods.deleteAttendance,
 
-  // Work schedule methods
+  // Add work schedule database methods
   getEmployeeWorkSchedule: dbMethods.getEmployeeWorkSchedule,
   createWorkSchedule: dbMethods.createWorkSchedule,
   updateWorkSchedule: dbMethods.updateWorkSchedule,

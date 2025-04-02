@@ -86,6 +86,50 @@ router.put("/:id", async (req, res) => {
   }
 });
 
+// Change password
+router.put("/:id/change-password", async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.params.id;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required",
+      });
+    }
+
+    // First, get the user to verify the current password
+    const user = await User.getById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Verify the current password
+    const verifyResult = await User.verifyPassword(userId, currentPassword);
+    if (!verifyResult.success) {
+      return res.status(401).json({
+        success: false,
+        message: "Current password is incorrect",
+      });
+    }
+
+    // Update the password
+    const result = await User.changePassword(userId, newPassword);
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Delete user
 router.delete("/:id", async (req, res) => {
   try {

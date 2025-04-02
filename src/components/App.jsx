@@ -11,6 +11,8 @@ import HolidaysPage from "../pages/HolidaysPage";
 import FingerprintPage from "../pages/FingerprintPage";
 import AttendancePage from "../pages/AttendancePage";
 import ReportPage from "../pages/ReportPage";
+import ProfilePage from "../pages/ProfilePage";
+import ChangePasswordPage from "../pages/ChangePasswordPage";
 
 // Create a custom theme
 const theme = createTheme({
@@ -124,6 +126,13 @@ const App = () => {
     sessionStorage.setItem("isAuthenticated", "true");
     sessionStorage.setItem("currentUser", JSON.stringify(user));
     navigate("/main");
+  };
+
+  // Function to handle user profile update
+  const handleProfileUpdate = (updatedUser) => {
+    setCurrentUser(updatedUser);
+    // Update in session storage
+    sessionStorage.setItem("currentUser", JSON.stringify(updatedUser));
   };
 
   // Function to handle login
@@ -254,7 +263,38 @@ const App = () => {
             />
           }
         />
-        <Route path="*" element={<Navigate to={initialRoute} replace />} />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute
+              element={
+                <ProfilePage
+                  user={currentUser}
+                  onLogout={handleLogout}
+                  onProfileUpdate={handleProfileUpdate}
+                />
+              }
+            />
+          }
+        />
+        <Route
+          path="/change-password"
+          element={
+            <ProtectedRoute
+              element={
+                <ChangePasswordPage
+                  user={currentUser}
+                  onLogout={handleLogout}
+                />
+              }
+            />
+          }
+        />
+        <Route
+          path="/"
+          element={<Navigate to={isAuthenticated ? "/main" : "/login"} />}
+        />
+        <Route path="*" element={<Navigate to="/main" />} />
       </Routes>
     </ThemeProvider>
   );

@@ -89,18 +89,27 @@ export async function testConnection() {
 // Authentication
 export async function login(username, password) {
   try {
-    // For Admin account, ensure consistent case for default credentials
-    const isDefaultAdmin =
-      username.toLowerCase() === "admin" && password === "Admin";
+    // Log the actual credential values for debugging
+    console.log(
+      `DEBUG - Actual credentials used: username="${username}", password="${password}"`
+    );
 
-    // Use the original Admin/Admin credentials for the default admin account
-    const payloadUsername = isDefaultAdmin ? "Admin" : username;
-    const payloadPassword = isDefaultAdmin ? "Admin" : password;
+    // Special handling for Admin user with case-insensitive matching
+    // If username is any variation of "admin", use the exact "Admin"/"Admin" credentials
+    const isAdminUser = username.toLowerCase() === "admin";
+
+    // Always use the exact Admin/Admin credentials for admin user, regardless of input case
+    const payloadUsername = isAdminUser ? "Admin" : username;
+    const payloadPassword = isAdminUser ? "Admin" : password;
 
     console.log(
       `Attempting API login for user: ${payloadUsername} to ${API_URL}/auth/login`
     );
+    console.log(
+      `DEBUG - Sending payload: username="${payloadUsername}", password="${payloadPassword}"`
+    );
 
+    // Make the direct API call without using fetchAPI helper to have more control
     const response = await fetch(`${API_URL}/auth/login`, {
       method: "POST",
       headers: {
@@ -113,9 +122,22 @@ export async function login(username, password) {
     });
 
     const data = await response.json();
+    console.log(`DEBUG - API login response:`, data);
 
     if (!response.ok) {
       console.error("API login failed:", data.message);
+
+      // For admin users always try IPC as fallback by returning success:false
+      if (isAdminUser) {
+        console.log(
+          "DEBUG - Admin user detected, will try IPC login as fallback"
+        );
+        return {
+          success: false,
+          message: "Will try local authentication",
+        };
+      }
+
       return {
         success: false,
         message: data.message || "Authentication failed",
@@ -158,6 +180,21 @@ export async function updateUser(id, userData) {
     method: "PUT",
     body: JSON.stringify(userData),
   });
+}
+
+export async function changePassword(id, currentPassword, newPassword) {
+  try {
+    return await fetchAPI(`/users/${id}/change-password`, {
+      method: "PUT",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  } catch (error) {
+    console.error("Password change failed:", error);
+    return {
+      success: false,
+      message: error.message || "Failed to change password",
+    };
+  }
 }
 
 export async function deleteUser(id) {
@@ -391,6 +428,71 @@ export const getAttendanceByDate = async (date) => {
   }
 };
 
+export const getAttendanceByDateRange = async (startDate, endDate) => {
+  try {
+    const formattedStartDate = formatDateForAPI(startDate);
+    const formattedEndDate = formatDateForAPI(endDate);
+    console.log(
+      `Getting attendance from ${formattedStartDate} to ${formattedEndDate}`
+    );
+
+    // Build query parameters
+    const params = new URLSearchParams();
+    params.append("startDate", formattedStartDate);
+    params.append("endDate", formattedEndDate);
+
+    const response = await fetchAPI(`/attendance?${params.toString()}`);
+    return response;
+  } catch (error) {
+    console.error("Error in getAttendanceByDateRange:", error);
+    return {
+      success: false,
+      message: "Failed to fetch attendance records",
+      data: [],
+    };
+  }
+};
+
+export const getAttendanceByMonth = async (year, month) => {
+  try {
+    // Validate inputs
+    if (!year || !month) {
+      console.error("Missing required parameters: year and month");
+      return {
+        success: false,
+        message: "Missing required parameters",
+        data: [],
+      };
+    }
+
+    // Calculate start and end dates for the month
+    const startDate = `${year}-${month}-01`;
+
+    // Calculate the last day of the month
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${year}-${month}-${lastDay}`;
+
+    console.log(
+      `Getting attendance for month: ${month}/${year} (${startDate} to ${endDate})`
+    );
+
+    // Build query parameters
+    const params = new URLSearchParams();
+    params.append("startDate", startDate);
+    params.append("endDate", endDate);
+
+    const response = await fetchAPI(`/attendance?${params.toString()}`);
+    return response;
+  } catch (error) {
+    console.error("Error in getAttendanceByMonth:", error);
+    return {
+      success: false,
+      message: "Failed to fetch monthly attendance records",
+      data: [],
+    };
+  }
+};
+
 export async function getAttendanceByEmployee(employeeId) {
   try {
     const response = await fetchAPI(`/attendance?employeeId=${employeeId}`);
@@ -576,6 +678,8 @@ export default {
   updateHoliday,
   deleteHoliday,
   getAttendanceByDate,
+  getAttendanceByDateRange,
+  getAttendanceByMonth,
   getAttendanceByEmployee,
   getAttendanceByEmployeeAndDate,
   fetchAttendanceWithPagination,

@@ -34,24 +34,34 @@ import {
   Tab,
   Tabs,
   CircularProgress,
+  CardMedia,
+  Divider,
 } from "@mui/material";
 import {
-  People,
+  People as PeopleIcon,
   CheckCircle,
   Cancel,
   AccessTime,
   TrendingUp,
-  EventNote,
+  EventNote as EventNoteIcon,
   Work,
   CalendarMonth,
   Group,
+  Business as BusinessIcon,
   Description,
   BarChart,
   DonutLarge,
   ShowChart,
   PieChart,
+  Today as TodayIcon,
+  DateRange as DateRangeIcon,
+  QueryBuilder as QueryBuilderIcon,
+  Settings as SettingsIcon,
+  ExitToApp as LogoutIcon,
 } from "@mui/icons-material";
 import { format, subDays, parseISO, startOfMonth, endOfMonth } from "date-fns";
+import { useTheme } from "@mui/material/styles";
+import { useNavigate } from "react-router-dom";
 
 // Register ChartJS components
 ChartJS.register(
@@ -68,6 +78,7 @@ ChartJS.register(
 
 const MainPage = ({ user, onLogout, onNavigate }) => {
   const [users, setUsers] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [apiAvailable, setApiAvailable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [attendanceData, setAttendanceData] = useState([]);
@@ -84,6 +95,34 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
   });
   const [chartLoading, setChartLoading] = useState(false);
   const [summaryData, setSummaryData] = useState({});
+  const [lineData, setLineData] = useState({
+    labels: ["No Data"],
+    datasets: [
+      {
+        label: "Present",
+        data: [0],
+        borderColor: "#4caf50",
+        tension: 0.4,
+        fill: false,
+      },
+      {
+        label: "Late",
+        data: [0],
+        borderColor: "#ff9800",
+        tension: 0.4,
+        fill: false,
+      },
+      {
+        label: "Absent",
+        data: [0],
+        borderColor: "#f44336",
+        tension: 0.4,
+        fill: false,
+      },
+    ],
+  });
+
+  const theme = useTheme();
 
   useEffect(() => {
     // Check API connection and fetch users if available
@@ -97,6 +136,18 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
           const usersResult = await api.getUsers();
           if (usersResult.success && usersResult.data) {
             setUsers(usersResult.data);
+          }
+
+          // Fetch employees
+          try {
+            const employeesResult = await api.getEmployees();
+            if (Array.isArray(employeesResult)) {
+              setEmployees(employeesResult);
+            } else if (employeesResult && Array.isArray(employeesResult.data)) {
+              setEmployees(employeesResult.data);
+            }
+          } catch (error) {
+            console.error("Error fetching employees:", error);
           }
 
           // Fetch departments
@@ -116,62 +167,99 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
     checkApiAndFetchUsers();
   }, []);
 
-  // Fetch attendance data for charts
-  const fetchAttendanceData = async () => {
-    setChartLoading(true);
+  // Fetch attendance data for the last 7 days
+  const fetchWeeklyAttendanceData = async () => {
     try {
-      // Get current date and date from 30 days ago
       const today = new Date();
-      const endDate = format(today, "yyyy-MM-dd");
+      const startDate = new Date(today);
+      startDate.setDate(today.getDate() - 6); // Get data for the last 7 days
 
-      // Monthly data (current month)
-      const startOfCurrentMonth = format(startOfMonth(today), "yyyy-MM-dd");
-      const endOfCurrentMonth = format(endOfMonth(today), "yyyy-MM-dd");
+      const endDateStr = today.toISOString().split("T")[0];
+      const startDateStr = startDate.toISOString().split("T")[0];
 
-      // Weekly data (last 7 days)
-      const startOfWeek = format(subDays(today, 6), "yyyy-MM-dd");
+      console.log(
+        `Fetching attendance data from ${startDateStr} to ${endDateStr}`
+      );
 
-      // Get today's stats
-      const todayData = await api.getAttendanceByDate(endDate);
+      const result = await api.getAttendanceByDateRange(
+        startDateStr,
+        endDateStr
+      );
+
+      if (result && Array.isArray(result.data)) {
+        // Process the attendance data for the line chart
+        processAttendanceData(result.data);
+      } else {
+        console.error("Failed to get attendance data for line chart", result);
+        // Set empty data for the line chart
+        processAttendanceData([]);
+      }
+    } catch (error) {
+      console.error("Error fetching weekly attendance data:", error);
+      processAttendanceData([]);
+    }
+  };
+
+  // Update the fetchAttendanceData function to include weekly data
+  const fetchAttendanceData = async () => {
+    try {
+      setChartLoading(true);
+      // Get today's date
+      const today = new Date();
+      const todayDate = today.toISOString().split("T")[0];
+
+      // Fetch today's data
+      const todayResult = await api.getAttendanceByDate(todayDate);
+      let todayData = [];
+      if (todayResult && Array.isArray(todayResult.data)) {
+        todayData = todayResult.data;
+      }
+
+      // Process current day stats
       processCurrentDayStats(todayData);
 
-      // Get monthly data
-      const monthlyResult = await api.getAttendanceReport(
-        startOfCurrentMonth,
-        endOfCurrentMonth
+      // Fetch monthly data
+      const currentMonth = (today.getMonth() + 1).toString().padStart(2, "0");
+      const currentYear = today.getFullYear();
+      const monthlyResult = await api.getAttendanceByMonth(
+        currentYear,
+        currentMonth
       );
-      if (monthlyResult.success) {
-        processMonthlyData(monthlyResult.data);
-        processSummaryData(monthlyResult.data);
-      }
 
-      // Get weekly data
-      const weeklyResult = await api.getAttendanceReport(startOfWeek, endDate);
-      if (weeklyResult.success) {
-        processWeeklyData(weeklyResult.data);
-      }
-
-      // Get department data
+      // Process department data from monthly attendance
       processDepartmentData(monthlyResult.data || []);
+
+      // Fetch and process weekly attendance data for the line chart
+      await fetchWeeklyAttendanceData();
+
+      setChartLoading(false);
     } catch (error) {
       console.error("Error fetching attendance data for charts:", error);
-    } finally {
       setChartLoading(false);
     }
   };
 
   // Process today's stats
   const processCurrentDayStats = (data) => {
-    if (!Array.isArray(data)) return;
+    if (!Array.isArray(data)) {
+      setDailyStats({
+        present: 0,
+        late: 0,
+        absent: 0,
+        total: 0,
+      });
+      return;
+    }
 
     const present = data.filter((record) => record.status === "present").length;
     const late = data.filter((record) => record.status === "late").length;
-    const total = data.length;
+    const absent = data.filter((record) => record.status === "absent").length;
+    const total = present + late + absent;
 
     setDailyStats({
       present,
       late,
-      absent: total > 0 ? total - (present + late) : 0,
+      absent,
       total,
     });
   };
@@ -284,112 +372,143 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
 
   // Process department data for the doughnut chart
   const processDepartmentData = (data) => {
-    if (!Array.isArray(data) || departments.length === 0) return;
+    if (
+      !Array.isArray(data) ||
+      !Array.isArray(departments) ||
+      departments.length === 0
+    ) {
+      // Set default empty chart data
+      setDeptData({
+        labels: ["No Department Data Available"],
+        datasets: [
+          {
+            data: [1],
+            backgroundColor: ["#9e9e9e"],
+            borderWidth: 1,
+          },
+        ],
+      });
+      return;
+    }
 
     // Initialize department counts
     const deptCounts = departments.reduce((acc, dept) => {
-      acc[dept.name] = 0;
+      if (dept && dept.name) {
+        acc[dept.name] = 0;
+      }
       return acc;
     }, {});
 
-    // Add unknown/unassigned department in case some records don't have department info
+    // Add unknown/unassigned department
     deptCounts["Unassigned"] = 0;
 
-    // Count attendance by department using employee's department
-    const processedRecords = 0;
+    // Get unique employee IDs from attendance data
+    const employeeIds = [
+      ...new Set(data.map((record) => record.employee_id)),
+    ].filter((id) => id);
 
-    // Try to fetch employees if we need department data
-    Promise.all(
-      [...new Set(data.map((record) => record.employee_id))]
-        .filter((id) => id)
-        .map((id) => api.getEmployee(id))
-    )
-      .then((employeeResults) => {
-        // Create employee to department lookup
-        const employeeDeptMap = {};
-        employeeResults.forEach((result) => {
-          if (result && result.department_id) {
-            employeeDeptMap[result.employee_id] = result.department_id;
-          }
+    // Fetch employee details if we have attendance records
+    if (employeeIds.length > 0) {
+      Promise.all(employeeIds.map((id) => api.getEmployee(id)))
+        .then((employeeResults) => {
+          // Create employee to department lookup
+          const employeeDeptMap = {};
+
+          employeeResults.forEach((result) => {
+            if (result && result.employee_id) {
+              employeeDeptMap[result.employee_id] = result.department_id;
+            }
+          });
+
+          // Count attendance by department
+          data.forEach((record) => {
+            if (!record.employee_id) {
+              deptCounts["Unassigned"]++;
+              return;
+            }
+
+            const deptId = employeeDeptMap[record.employee_id];
+            if (!deptId) {
+              deptCounts["Unassigned"]++;
+              return;
+            }
+
+            // Find department name from id
+            const dept = departments.find((d) => d.department_id === deptId);
+            if (dept && dept.name) {
+              deptCounts[dept.name] = (deptCounts[dept.name] || 0) + 1;
+            } else {
+              deptCounts["Unassigned"]++;
+            }
+          });
+
+          // Remove departments with no attendance records
+          Object.keys(deptCounts).forEach((key) => {
+            if (deptCounts[key] === 0) {
+              delete deptCounts[key];
+            }
+          });
+
+          // Generate colors
+          const backgroundColors = [
+            "#4caf50",
+            "#2196f3",
+            "#9c27b0",
+            "#ff9800",
+            "#f44336",
+            "#009688",
+            "#673ab7",
+            "#3f51b5",
+            "#e91e63",
+            "#ffc107",
+            "#795548",
+            "#607d8b",
+          ];
+
+          // Create chart data
+          const chartData = {
+            labels: Object.keys(deptCounts),
+            datasets: [
+              {
+                data: Object.values(deptCounts),
+                backgroundColor: backgroundColors.slice(
+                  0,
+                  Object.keys(deptCounts).length
+                ),
+                borderWidth: 1,
+              },
+            ],
+          };
+
+          setDeptData(chartData);
+        })
+        .catch((error) => {
+          console.error("Error processing department data:", error);
+          // Fallback to a simple dataset
+          setDeptData({
+            labels: ["No Department Data Available"],
+            datasets: [
+              {
+                data: [1],
+                backgroundColor: ["#9e9e9e"],
+                borderWidth: 1,
+              },
+            ],
+          });
         });
-
-        // Count attendance by department
-        data.forEach((record) => {
-          if (!record.employee_id) {
-            deptCounts["Unassigned"]++;
-            return;
-          }
-
-          const deptId = employeeDeptMap[record.employee_id];
-          if (!deptId) {
-            deptCounts["Unassigned"]++;
-            return;
-          }
-
-          // Find department name from id
-          const dept = departments.find((d) => d.department_id === deptId);
-          if (dept) {
-            deptCounts[dept.name] = (deptCounts[dept.name] || 0) + 1;
-          } else {
-            deptCounts["Unassigned"]++;
-          }
-        });
-
-        // Remove departments with no attendance records
-        Object.keys(deptCounts).forEach((key) => {
-          if (deptCounts[key] === 0) {
-            delete deptCounts[key];
-          }
-        });
-
-        // Generate colors
-        const backgroundColors = [
-          "#4caf50",
-          "#2196f3",
-          "#9c27b0",
-          "#ff9800",
-          "#f44336",
-          "#009688",
-          "#673ab7",
-          "#3f51b5",
-          "#e91e63",
-          "#ffc107",
-        ];
-
-        // Create chart data
-        const chartData = {
-          labels: Object.keys(deptCounts),
-          datasets: [
-            {
-              data: Object.values(deptCounts),
-              backgroundColor: backgroundColors.slice(
-                0,
-                Object.keys(deptCounts).length
-              ),
-              borderWidth: 1,
-            },
-          ],
-        };
-
-        setDeptData(chartData);
-      })
-      .catch((error) => {
-        console.error("Error processing department data:", error);
-
-        // Fallback to a simple dataset if error occurs
-        const chartData = {
-          labels: ["No Department Data Available"],
-          datasets: [
-            {
-              data: [1],
-              backgroundColor: ["#9e9e9e"],
-              borderWidth: 1,
-            },
-          ],
-        };
-
-        setDeptData(chartData);
+    } else {
+      // No employee data to process
+      setDeptData({
+        labels: ["No Attendance Data"],
+        datasets: [
+          {
+            data: [1],
+            backgroundColor: ["#9e9e9e"],
+            borderWidth: 1,
+          },
+        ],
       });
+    }
   };
 
   // Process attendance data for overall summary pie chart
@@ -450,6 +569,152 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
     setSummaryData(chartData);
   };
 
+  // Process attendance data for the line chart
+  const processAttendanceData = (data) => {
+    if (!Array.isArray(data) || data.length === 0) {
+      // Set default empty chart data
+      setLineData({
+        labels: ["No Data"],
+        datasets: [
+          {
+            label: "Present",
+            data: [0],
+            borderColor: "#4caf50",
+            tension: 0.4,
+            fill: false,
+          },
+          {
+            label: "Late",
+            data: [0],
+            borderColor: "#ff9800",
+            tension: 0.4,
+            fill: false,
+          },
+          {
+            label: "Absent",
+            data: [0],
+            borderColor: "#f44336",
+            tension: 0.4,
+            fill: false,
+          },
+        ],
+      });
+      return;
+    }
+
+    try {
+      // Get the date range for the last 7 days
+      const today = new Date();
+      const dates = [];
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        dates.push(date.toISOString().split("T")[0]);
+      }
+
+      // Initialize counts for each day
+      const dailyCounts = dates.reduce((acc, date) => {
+        acc[date] = { present: 0, late: 0, absent: 0 };
+        return acc;
+      }, {});
+
+      // Get the total number of expected employees each day
+      const totalEmployeesPerDay = employees.length || 0;
+
+      // Process attendance data
+      data.forEach((record) => {
+        const recordDate = record.date
+          ? new Date(record.date).toISOString().split("T")[0]
+          : null;
+
+        // Skip records outside our date range
+        if (!recordDate || !dailyCounts[recordDate]) return;
+
+        if (record.status === "present") {
+          dailyCounts[recordDate].present++;
+        } else if (record.status === "late") {
+          dailyCounts[recordDate].late++;
+        }
+      });
+
+      // Calculate absent as total employees minus present and late
+      dates.forEach((date) => {
+        const dayCount = dailyCounts[date];
+        dayCount.absent = Math.max(
+          0,
+          totalEmployeesPerDay - dayCount.present - dayCount.late
+        );
+      });
+
+      // Create the chart data
+      const chartData = {
+        labels: dates.map((date) => {
+          const d = new Date(date);
+          return d.toLocaleDateString("en-US", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+          });
+        }),
+        datasets: [
+          {
+            label: "Present",
+            data: dates.map((date) => dailyCounts[date].present),
+            borderColor: "#4caf50",
+            tension: 0.4,
+            fill: false,
+          },
+          {
+            label: "Late",
+            data: dates.map((date) => dailyCounts[date].late),
+            borderColor: "#ff9800",
+            tension: 0.4,
+            fill: false,
+          },
+          {
+            label: "Absent",
+            data: dates.map((date) => dailyCounts[date].absent),
+            borderColor: "#f44336",
+            tension: 0.4,
+            fill: false,
+          },
+        ],
+      };
+
+      setLineData(chartData);
+    } catch (error) {
+      console.error("Error processing attendance data for line chart:", error);
+
+      // Set fallback chart data
+      setLineData({
+        labels: ["No Data"],
+        datasets: [
+          {
+            label: "Present",
+            data: [0],
+            borderColor: "#4caf50",
+            tension: 0.4,
+            fill: false,
+          },
+          {
+            label: "Late",
+            data: [0],
+            borderColor: "#ff9800",
+            tension: 0.4,
+            fill: false,
+          },
+          {
+            label: "Absent",
+            data: [0],
+            borderColor: "#f44336",
+            tension: 0.4,
+            fill: false,
+          },
+        ],
+      });
+    }
+  };
+
   const handleChartTabChange = (event, newValue) => {
     setChartTab(newValue);
   };
@@ -457,8 +722,8 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
   const stats = [
     {
       title: "Total Employees",
-      value: users.length || 42,
-      icon: <People fontSize="large" />,
+      value: employees.length || 0,
+      icon: <PeopleIcon fontSize="large" />,
       color: "#4caf50",
       bgColor: "#e8f5e9",
     },
@@ -489,7 +754,7 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
     {
       title: "Employee Management",
       description: "Add, edit, or remove employees from the system",
-      icon: <People fontSize="large" color="primary" />,
+      icon: <PeopleIcon fontSize="large" color="primary" />,
       action: () => onNavigate("employees"),
       color: "#2196f3",
     },
@@ -503,7 +768,7 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
     {
       title: "Attendance Records",
       description: "View and manage detailed attendance history",
-      icon: <EventNote fontSize="large" color="primary" />,
+      icon: <EventNoteIcon fontSize="large" color="primary" />,
       action: () => onNavigate("attendance"),
       color: "#9c27b0",
     },
@@ -526,19 +791,62 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
   // Chart options
   const lineOptions = {
     responsive: true,
-    maintainAspectRatio: false,
     plugins: {
       legend: {
         position: "top",
+        labels: {
+          color: theme.palette.text.primary,
+          font: {
+            size: 12,
+          },
+        },
       },
       title: {
         display: true,
-        text: "Monthly Attendance Trends",
+        text: "Attendance Trends (Last 7 Days)",
+        color: theme.palette.text.primary,
+        font: {
+          size: 16,
+          weight: "bold",
+        },
+      },
+      tooltip: {
+        mode: "index",
+        intersect: false,
       },
     },
+    hover: {
+      mode: "nearest",
+      intersect: true,
+    },
     scales: {
+      x: {
+        title: {
+          display: true,
+          text: "Day",
+          color: theme.palette.text.primary,
+        },
+        ticks: {
+          color: theme.palette.text.primary,
+        },
+        grid: {
+          color: theme.palette.mode === "dark" ? "#555" : "#ddd",
+        },
+      },
       y: {
-        beginAtZero: true,
+        title: {
+          display: true,
+          text: "Number of Employees",
+          color: theme.palette.text.primary,
+        },
+        min: 0,
+        ticks: {
+          color: theme.palette.text.primary,
+          precision: 0,
+        },
+        grid: {
+          color: theme.palette.mode === "dark" ? "#555" : "#ddd",
+        },
       },
     },
   };
@@ -605,6 +913,14 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
     },
   };
 
+  // Chart tabs
+  const chartTabs = [
+    { label: "Today's Stats", icon: <TodayIcon /> },
+    { label: "Weekly Trends", icon: <DateRangeIcon /> },
+    { label: "Department Stats", icon: <BusinessIcon /> },
+    { label: "Annual Summary", icon: <ShowChart /> },
+  ];
+
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pt: 8 }}>
       <Navbar user={user} onLogout={onLogout} />
@@ -665,10 +981,10 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
               onChange={handleChartTabChange}
               aria-label="attendance charts tabs"
             >
-              <Tab icon={<BarChart />} label="Weekly" />
-              <Tab icon={<ShowChart />} label="Monthly Trends" />
-              <Tab icon={<DonutLarge />} label="By Department" />
-              <Tab icon={<PieChart />} label="Summary" />
+              <Tab icon={<TodayIcon />} label="Today's Stats" />
+              <Tab icon={<DateRangeIcon />} label="Weekly Trends" />
+              <Tab icon={<BusinessIcon />} label="Department Stats" />
+              <Tab icon={<ShowChart />} label="Annual Summary" />
             </Tabs>
           </Box>
 
@@ -690,7 +1006,7 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
                   <Bar options={barOptions} data={weeklyData} />
                 )}
                 {chartTab === 1 && Object.keys(monthlyData).length > 0 && (
-                  <Line options={lineOptions} data={monthlyData} />
+                  <Line options={lineOptions} data={lineData} />
                 )}
                 {chartTab === 2 && Object.keys(deptData).length > 0 && (
                   <Box
@@ -719,7 +1035,7 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
                   </Box>
                 )}
                 {((chartTab === 0 && Object.keys(weeklyData).length === 0) ||
-                  (chartTab === 1 && Object.keys(monthlyData).length === 0) ||
+                  (chartTab === 1 && Object.keys(lineData).length === 0) ||
                   (chartTab === 2 && Object.keys(deptData).length === 0) ||
                   (chartTab === 3 &&
                     Object.keys(summaryData).length === 0)) && (

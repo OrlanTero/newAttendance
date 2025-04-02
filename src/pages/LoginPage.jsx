@@ -41,63 +41,66 @@ const LoginPage = ({ onLogin }) => {
     setError("");
     setIsLoading(true);
 
-    // Special handling for admin account - normalize credentials
-    const isAdmin = username.toLowerCase() === "admin";
+    try {
+      // Special handling for admin login
+      const isAdminUser = username.toLowerCase() === "admin";
 
-    // If it's admin, make sure the password case is correct
-    if (isAdmin && password !== "Admin") {
-      console.log(
-        "Admin account detected but incorrect password case, correcting to 'Admin'"
-      );
-      if (password.toLowerCase() === "admin") {
-        // Silently correct the password case for default admin
-        const correctedPassword = "Admin";
+      // For admin user, API might fail but we want to try IPC login anyway
+      if (isAdminUser) {
+        console.log(
+          "Admin user detected, will try API first, then fallback to IPC"
+        );
 
-        try {
-          if (apiAvailable) {
-            console.log(
-              "Attempting API login with corrected admin credentials"
-            );
-            const result = await api.login(username, correctedPassword);
+        if (apiAvailable) {
+          try {
+            // Try API first
+            const result = await api.login(username, password);
 
             if (result.success) {
-              console.log(
-                "API login successful with corrected admin credentials"
-              );
+              console.log("API login successful for admin");
               onLogin({
                 username,
-                password: correctedPassword,
+                password,
                 user: result.user,
                 method: "api",
               });
               return;
             }
-          }
 
-          // Fall back to IPC login with corrected credentials
-          console.log("Using IPC login with corrected admin credentials");
+            // If API fails, automatically try IPC for admin
+            console.log("API login failed for admin, falling back to IPC");
+            onLogin({
+              username: "Admin",
+              password: "Admin",
+              method: "ipc",
+            });
+            return;
+          } catch (error) {
+            console.error("Error during admin API login:", error);
+            // Fall back to IPC for any error
+            onLogin({
+              username: "Admin",
+              password: "Admin",
+              method: "ipc",
+            });
+            return;
+          }
+        } else {
+          // API not available, use IPC directly
+          console.log("API not available, using IPC login for admin");
           onLogin({
             username: "Admin",
             password: "Admin",
             method: "ipc",
           });
           return;
-        } catch (error) {
-          console.error("Login error with corrected credentials:", error);
-          setError(
-            `Login failed: ${error.message || "Unknown error occurred"}`
-          );
-          setIsLoading(false);
-          return;
         }
       }
-    }
 
-    // Standard login flow
-    try {
+      // Non-admin users
       if (apiAvailable) {
-        // Try API login first
-        console.log("Attempting API login...");
+        // Try API login for regular users
+        console.log("Attempting API login for non-admin user");
         const result = await api.login(username, password);
 
         if (result.success) {
@@ -109,39 +112,15 @@ const LoginPage = ({ onLogin }) => {
             method: "api",
           });
         } else {
-          // Show error message from API
+          // Show error message from API for non-admin users
           console.log(`API login failed: ${result.message}`);
-
-          // Fallback for admin account
-          if (isAdmin) {
-            console.log("Trying admin credentials with IPC login");
-            // Fall back to direct IPC login for admin
-            onLogin({
-              username: "Admin",
-              password: "Admin",
-              method: "ipc",
-            });
-          } else {
-            setError(
-              `Login failed: ${result.message || "Authentication error"}`
-            );
-            setIsLoading(false);
-          }
+          setError(`Login failed: ${result.message || "Authentication error"}`);
+          setIsLoading(false);
         }
       } else {
         // Use direct IPC login if API is not available
         console.log("API not available, using IPC login...");
-
-        // For admin accounts, always use the correct case
-        if (isAdmin) {
-          onLogin({
-            username: "Admin",
-            password: "Admin",
-            method: "ipc",
-          });
-        } else {
-          onLogin({ username, password, method: "ipc" });
-        }
+        onLogin({ username, password, method: "ipc" });
       }
     } catch (error) {
       console.error("Login error:", error);
