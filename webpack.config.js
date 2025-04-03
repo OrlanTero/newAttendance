@@ -1,5 +1,6 @@
 const path = require("path");
 const webpack = require("webpack");
+const CopyWebpackPlugin = require("copy-webpack-plugin");
 
 module.exports = {
   mode: "development",
@@ -7,7 +8,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, "src/dist"),
     filename: "renderer.js",
-    publicPath: "/",
+    publicPath: "./dist/",
   },
   module: {
     rules: [
@@ -70,6 +71,15 @@ module.exports = {
     new webpack.ProvidePlugin({
       process: "process/browser",
       Buffer: ["buffer", "Buffer"],
+    }),
+    // Copy assets to the output directory
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: "src/assets",
+          to: "assets",
+        },
+      ],
     }),
   ],
   devServer: {

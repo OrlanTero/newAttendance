@@ -4,9 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Attendance Management System</title>
+    <script>
+      // Handle image loading errors
+      window.addEventListener(
+        "error",
+        function (e) {
+          if (e.target.tagName === "IMG") {
+            console.log("Image failed to load:", e.target.src);
+            // Create a data URL for a simple placeholder
+            const canvas = document.createElement("canvas");
+            canvas.width = 80;
+            canvas.height = 80;
+            const ctx = canvas.getContext("2d");
+            ctx.fillStyle = "#3f51b5";
+            ctx.fillRect(0, 0, 80, 80);
+            ctx.font = "36px Arial";
+            ctx.fillStyle = "white";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("A", 40, 40);
+
+            // Replace the src with the data URL
+            e.target.src = canvas.toDataURL();
+            return true; // Prevent the default error handling
+          }
+        },
+        true
+      );
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script src="/renderer.js"></script>
+    <script src="./dist/renderer.js"></script>
   </body>
 </html>

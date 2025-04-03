@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, screen } = require("electron");
 const path = require("node:path");
-const isDev = process.env.NODE_ENV === "development";
+// const isDev = process.env.NODE_ENV === "development";
+const isDev = false;
 const { initDatabase, authenticateUser, closeDb } = require("./utils/db");
 
 let mainWindow = null;
