@@ -13,6 +13,9 @@ import AttendancePage from "../pages/AttendancePage";
 import ReportPage from "../pages/ReportPage";
 import ProfilePage from "../pages/ProfilePage";
 import ChangePasswordPage from "../pages/ChangePasswordPage";
+import BackupPage from "../pages/BackupPage";
+import SettingsPage from "../pages/SettingsPage";
+import EventsPage from "../pages/EventsPage";
 
 // Create a custom theme
 const theme = createTheme({
@@ -171,8 +174,24 @@ const App = () => {
   };
 
   // Protected route component
-  const ProtectedRoute = ({ element }) => {
-    return isAuthenticated ? element : <Navigate to="/login" replace />;
+  const ProtectedRoute = ({ element, allowedRoles = [] }) => {
+    // If not authenticated, redirect to login
+    if (!isAuthenticated) {
+      return <Navigate to="/login" replace />;
+    }
+
+    // If no roles specified or user has admin role, allow access
+    if (allowedRoles.length === 0 || currentUser?.role === "admin") {
+      return element;
+    }
+
+    // Check if user's role is in the allowed roles
+    if (currentUser?.role && allowedRoles.includes(currentUser.role)) {
+      return element;
+    }
+
+    // If role not allowed, redirect to main page
+    return <Navigate to="/main" replace />;
   };
 
   return (
@@ -210,6 +229,7 @@ const App = () => {
               element={
                 <EmployeesPage user={currentUser} onLogout={handleLogout} />
               }
+              allowedRoles={["admin"]}
             />
           }
         />
@@ -220,6 +240,7 @@ const App = () => {
               element={
                 <DepartmentsPage user={currentUser} onLogout={handleLogout} />
               }
+              allowedRoles={["admin"]}
             />
           }
         />
@@ -230,6 +251,18 @@ const App = () => {
               element={
                 <HolidaysPage user={currentUser} onLogout={handleLogout} />
               }
+              allowedRoles={["admin"]}
+            />
+          }
+        />
+        <Route
+          path="/events"
+          element={
+            <ProtectedRoute
+              element={
+                <EventsPage user={currentUser} onLogout={handleLogout} />
+              }
+              allowedRoles={["admin", "captain", "secretary"]}
             />
           }
         />
@@ -240,6 +273,7 @@ const App = () => {
               element={
                 <FingerprintPage user={currentUser} onLogout={handleLogout} />
               }
+              allowedRoles={["admin"]}
             />
           }
         />
@@ -250,6 +284,7 @@ const App = () => {
               element={
                 <AttendancePage user={currentUser} onLogout={handleLogout} />
               }
+              allowedRoles={["admin", "captain"]}
             />
           }
         />
@@ -260,6 +295,7 @@ const App = () => {
               element={
                 <ReportPage user={currentUser} onLogout={handleLogout} />
               }
+              allowedRoles={["admin", "captain", "secretary"]}
             />
           }
         />
@@ -287,6 +323,28 @@ const App = () => {
                   onLogout={handleLogout}
                 />
               }
+            />
+          }
+        />
+        <Route
+          path="/backup"
+          element={
+            <ProtectedRoute
+              element={
+                <BackupPage user={currentUser} onLogout={handleLogout} />
+              }
+              allowedRoles={["admin"]}
+            />
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute
+              element={
+                <SettingsPage user={currentUser} onLogout={handleLogout} />
+              }
+              allowedRoles={["admin"]}
             />
           }
         />

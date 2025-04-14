@@ -8,10 +8,12 @@ router.get("/", async (req, res) => {
   try {
     const {
       employeeId,
+      departmentId,
       date,
       startDate,
       endDate,
       status,
+      excludeStatus,
       page = 1,
       limit = 10,
     } = req.query;
@@ -26,10 +28,12 @@ router.get("/", async (req, res) => {
 
     console.log("Attendance query parameters:", {
       employeeId,
+      departmentId,
       date,
       startDate,
       endDate,
       status,
+      excludeStatus,
       page,
       limit,
     });
@@ -54,10 +58,26 @@ router.get("/", async (req, res) => {
           )
         : filteredByDate;
 
-      // Filter by status if provided
-      const filteredRecords = status
-        ? filteredByEmployee.filter((record) => record.status === status)
+      // Filter by department ID if provided
+      const filteredByDepartment = departmentId
+        ? filteredByEmployee.filter(
+            (record) => record.department_id === parseInt(departmentId, 10)
+          )
         : filteredByEmployee;
+
+      // Filter by status if provided
+      let filteredRecords;
+      if (status) {
+        filteredRecords = filteredByDepartment.filter(
+          (record) => record.status === status
+        );
+      } else if (excludeStatus) {
+        filteredRecords = filteredByDepartment.filter(
+          (record) => record.status !== excludeStatus
+        );
+      } else {
+        filteredRecords = filteredByDepartment;
+      }
 
       totalRecords = filteredRecords.length;
       attendanceRecords = filteredRecords.slice(offset, offset + limitNum);
@@ -69,12 +89,20 @@ router.get("/", async (req, res) => {
         employeeId,
         date
       );
-      totalRecords = allRecords.length;
 
-      // Filter by status if provided
-      const filteredRecords = status
-        ? allRecords.filter((record) => record.status === status)
-        : allRecords;
+      // Filter by status (include or exclude)
+      let filteredRecords;
+      if (status) {
+        filteredRecords = allRecords.filter(
+          (record) => record.status === status
+        );
+      } else if (excludeStatus) {
+        filteredRecords = allRecords.filter(
+          (record) => record.status !== excludeStatus
+        );
+      } else {
+        filteredRecords = allRecords;
+      }
 
       totalRecords = filteredRecords.length;
 
@@ -84,10 +112,19 @@ router.get("/", async (req, res) => {
       // Query by employee ID only
       const allRecords = await Attendance.getByEmployeeId(employeeId);
 
-      // Filter by status if provided
-      const filteredRecords = status
-        ? allRecords.filter((record) => record.status === status)
-        : allRecords;
+      // Filter by status (include or exclude)
+      let filteredRecords;
+      if (status) {
+        filteredRecords = allRecords.filter(
+          (record) => record.status === status
+        );
+      } else if (excludeStatus) {
+        filteredRecords = allRecords.filter(
+          (record) => record.status !== excludeStatus
+        );
+      } else {
+        filteredRecords = allRecords;
+      }
 
       // Filter by date if provided without exact match
       const dateFilteredRecords = date
@@ -102,10 +139,19 @@ router.get("/", async (req, res) => {
       // Query by date only
       const allRecords = await Attendance.getByDate(date);
 
-      // Filter by status if provided
-      const filteredRecords = status
-        ? allRecords.filter((record) => record.status === status)
-        : allRecords;
+      // Filter by status (include or exclude)
+      let filteredRecords;
+      if (status) {
+        filteredRecords = allRecords.filter(
+          (record) => record.status === status
+        );
+      } else if (excludeStatus) {
+        filteredRecords = allRecords.filter(
+          (record) => record.status !== excludeStatus
+        );
+      } else {
+        filteredRecords = allRecords;
+      }
 
       totalRecords = filteredRecords.length;
 
@@ -115,10 +161,19 @@ router.get("/", async (req, res) => {
       // Get all records and then filter/paginate
       const allRecords = await Attendance.getAll();
 
-      // Filter by status if provided
-      const filteredRecords = status
-        ? allRecords.filter((record) => record.status === status)
-        : allRecords;
+      // Filter by status (include or exclude)
+      let filteredRecords;
+      if (status) {
+        filteredRecords = allRecords.filter(
+          (record) => record.status === status
+        );
+      } else if (excludeStatus) {
+        filteredRecords = allRecords.filter(
+          (record) => record.status !== excludeStatus
+        );
+      } else {
+        filteredRecords = allRecords;
+      }
 
       totalRecords = filteredRecords.length;
 
@@ -172,21 +227,46 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Update attendance record
-router.put("/:id", async (req, res) => {
+// Create manual attendance log (Admin only)
+router.post("/manual", async (req, res) => {
   try {
-    const result = await Attendance.update(req.params.id, req.body);
+    // Check if the user is admin (you might want to add proper authentication middleware)
+    if (req.user && req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only administrators can create manual attendance logs",
+      });
+    }
+
+    const result = await Attendance.createManualLog(req.body);
 
     if (!result.success) {
-      if (result.message && result.message.includes("not found")) {
-        return res.status(404).json(result);
-      }
+      return res.status(400).json(result);
+    }
+
+    res.status(201).json(result);
+  } catch (error) {
+    console.error("Error in POST /attendance/manual:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Update attendance record
+router.put("/:attendanceId", async (req, res) => {
+  try {
+    const { attendanceId } = req.params;
+    const result = await Attendance.update(attendanceId, req.body);
+
+    if (!result.success) {
       return res.status(400).json(result);
     }
 
     res.json(result);
   } catch (error) {
-    console.error("Error in PUT /attendance/:id:", error);
+    console.error(
+      `Error in PUT /attendance/${req.params.attendanceId}:`,
+      error
+    );
     res.status(500).json({ success: false, message: error.message });
   }
 });

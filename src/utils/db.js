@@ -38,6 +38,7 @@ function initDatabase() {
           display_name TEXT NOT NULL,
           biometric_data TEXT,
           image TEXT,
+          role TEXT DEFAULT 'user',
           date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `,
@@ -48,37 +49,132 @@ function initDatabase() {
             return;
           }
 
-          // Check if admin user exists, if not create default admin
-          db.get(
-            "SELECT * FROM users WHERE username = ?",
-            ["Admin"],
-            (err, row) => {
+          // Create events table
+          db.run(
+            `
+            CREATE TABLE IF NOT EXISTS events (
+              event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+              title TEXT NOT NULL,
+              description TEXT,
+              location TEXT,
+              start_date TIMESTAMP NOT NULL,
+              end_date TIMESTAMP,
+              created_by INTEGER,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (created_by) REFERENCES users(user_id)
+            )
+          `,
+            (err) => {
               if (err) {
-                console.error("Error checking for admin user:", err.message);
+                console.error("Error creating events table:", err.message);
                 reject(err);
                 return;
               }
 
-              if (!row) {
-                db.run(
-                  `
-              INSERT INTO users (username, password, display_name)
-              VALUES (?, ?, ?)
-            `,
-                  ["Admin", "Admin", "Administrator"],
-                  function (err) {
-                    if (err) {
-                      console.error("Error creating admin user:", err.message);
-                      reject(err);
-                      return;
-                    }
-                    console.log("Default Admin user created");
-                    resolve(true);
+              // Check if admin user exists, if not create default admin
+              db.get(
+                "SELECT * FROM users WHERE username = ?",
+                ["Admin"],
+                (err, row) => {
+                  if (err) {
+                    console.error(
+                      "Error checking for admin user:",
+                      err.message
+                    );
+                    reject(err);
+                    return;
                   }
-                );
-              } else {
-                resolve(true);
-              }
+
+                  if (!row) {
+                    db.run(
+                      `
+                  INSERT INTO users (username, password, display_name, role)
+                  VALUES (?, ?, ?, ?)
+                `,
+                      ["Admin", "Admin", "Administrator", "admin"],
+                      function (err) {
+                        if (err) {
+                          console.error(
+                            "Error creating admin user:",
+                            err.message
+                          );
+                          reject(err);
+                          return;
+                        }
+                        console.log("Default Admin user created");
+
+                        // Create default Captain user
+                        db.run(
+                          `
+                    INSERT INTO users (username, password, display_name, role)
+                    VALUES (?, ?, ?, ?)
+                  `,
+                          ["Captain", "Captain", "Captain", "captain"],
+                          function (err) {
+                            if (err) {
+                              console.error(
+                                "Error creating captain user:",
+                                err.message
+                              );
+                              reject(err);
+                              return;
+                            }
+                            console.log("Default Captain user created");
+
+                            // Create default Secretary user
+                            db.run(
+                              `
+                        INSERT INTO users (username, password, display_name, role)
+                        VALUES (?, ?, ?, ?)
+                      `,
+                              [
+                                "Secretary",
+                                "Secretary",
+                                "Secretary",
+                                "secretary",
+                              ],
+                              function (err) {
+                                if (err) {
+                                  console.error(
+                                    "Error creating secretary user:",
+                                    err.message
+                                  );
+                                  reject(err);
+                                  return;
+                                }
+                                console.log("Default Secretary user created");
+                                resolve(true);
+                              }
+                            );
+                          }
+                        );
+                      }
+                    );
+                  } else {
+                    // Check if existing Admin has role field, update if not
+                    if (!row.role) {
+                      db.run(
+                        "UPDATE users SET role = 'admin' WHERE username = 'Admin'",
+                        function (err) {
+                          if (err) {
+                            console.error(
+                              "Error updating admin role:",
+                              err.message
+                            );
+                            reject(err);
+                            return;
+                          }
+                          console.log("Updated Admin user with role");
+                          resolve(true);
+                        }
+                      );
+                    } else {
+                      resolve(true);
+                    }
+                  }
+                }
+              );
             }
           );
         }
@@ -160,8 +256,16 @@ function authenticateUser(username, password) {
           // Don't return the password in the response
           const { password, ...userWithoutPassword } = user;
           console.log(
-            `[IPC] Authentication successful for user: ${user.username}`
+            `[IPC] Authentication successful for user: ${
+              user.username
+            } with role: ${user.role || "admin"}`
           );
+
+          // If the user doesn't have a role (for backward compatibility), assume admin for default Admin user
+          if (!userWithoutPassword.role && isDefaultAdmin) {
+            userWithoutPassword.role = "admin";
+          }
+
           resolve({
             success: true,
             message: "Authentication successful",
@@ -194,10 +298,163 @@ function getAllUsers() {
   });
 }
 
+// Event-related functions
+function getAllEvents() {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.all(
+      `SELECT e.*, u.display_name as creator_name 
+       FROM events e 
+       LEFT JOIN users u ON e.created_by = u.user_id 
+       ORDER BY e.start_date ASC`,
+      [],
+      (err, rows) => {
+        if (err) {
+          console.error("Error getting events:", err.message);
+          reject(err);
+          return;
+        }
+        resolve(rows);
+      }
+    );
+  });
+}
+
+function getUpcomingEvents(limit = 5) {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    const today = new Date().toISOString();
+
+    db.all(
+      `SELECT e.*, u.display_name as creator_name 
+       FROM events e 
+       LEFT JOIN users u ON e.created_by = u.user_id 
+       WHERE e.start_date >= ? 
+       ORDER BY e.start_date ASC 
+       LIMIT ?`,
+      [today, limit],
+      (err, rows) => {
+        if (err) {
+          console.error("Error getting upcoming events:", err.message);
+          reject(err);
+          return;
+        }
+        resolve(rows);
+      }
+    );
+  });
+}
+
+function getEvent(eventId) {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.get(
+      `SELECT e.*, u.display_name as creator_name 
+       FROM events e 
+       LEFT JOIN users u ON e.created_by = u.user_id 
+       WHERE e.event_id = ?`,
+      [eventId],
+      (err, row) => {
+        if (err) {
+          console.error("Error getting event:", err.message);
+          reject(err);
+          return;
+        }
+        resolve(row);
+      }
+    );
+  });
+}
+
+function createEvent(eventData) {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    const { title, description, location, start_date, end_date, created_by } =
+      eventData;
+
+    db.run(
+      `INSERT INTO events (title, description, location, start_date, end_date, created_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [title, description, location, start_date, end_date, created_by],
+      function (err) {
+        if (err) {
+          console.error("Error creating event:", err.message);
+          reject(err);
+          return;
+        }
+
+        // Return the created event with its ID
+        getEvent(this.lastID)
+          .then((event) => resolve(event))
+          .catch((err) => reject(err));
+      }
+    );
+  });
+}
+
+function updateEvent(eventId, eventData) {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    const { title, description, location, start_date, end_date } = eventData;
+    const updated_at = new Date().toISOString();
+
+    db.run(
+      `UPDATE events 
+       SET title = ?, description = ?, location = ?, start_date = ?, end_date = ?, updated_at = ? 
+       WHERE event_id = ?`,
+      [title, description, location, start_date, end_date, updated_at, eventId],
+      function (err) {
+        if (err) {
+          console.error("Error updating event:", err.message);
+          reject(err);
+          return;
+        }
+
+        if (this.changes === 0) {
+          reject(new Error("Event not found"));
+          return;
+        }
+
+        // Return the updated event
+        getEvent(eventId)
+          .then((event) => resolve(event))
+          .catch((err) => reject(err));
+      }
+    );
+  });
+}
+
+function deleteEvent(eventId) {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+
+    db.run(`DELETE FROM events WHERE event_id = ?`, [eventId], function (err) {
+      if (err) {
+        console.error("Error deleting event:", err.message);
+        reject(err);
+        return;
+      }
+
+      if (this.changes === 0) {
+        reject(new Error("Event not found"));
+        return;
+      }
+
+      resolve({ success: true, message: "Event deleted successfully" });
+    });
+  });
+}
+
 module.exports = {
   initDatabase,
   getDb,
   closeDb,
   authenticateUser,
   getAllUsers,
+  getAllEvents,
+  getUpcomingEvents,
+  getEvent,
+  createEvent,
+  updateEvent,
+  deleteEvent,
 };

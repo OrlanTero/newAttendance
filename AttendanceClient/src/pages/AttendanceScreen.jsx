@@ -24,6 +24,7 @@ import EventBusyIcon from "@mui/icons-material/EventBusy";
 import CelebrationIcon from "@mui/icons-material/Celebration";
 import { io } from "socket.io-client";
 import * as api from "../utils/api";
+import { useNavigate } from "react-router-dom";
 
 const AttendanceScreen = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -40,6 +41,7 @@ const AttendanceScreen = () => {
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [lastRefreshed, setLastRefreshed] = useState(null);
   const [nonWorkingDayReason, setNonWorkingDayReason] = useState(null); // holiday, rest-day
+  const navigate = useNavigate();
 
   // Constants for time calculations
   const SHIFT_START_HOUR = 8; // 8 AM
@@ -48,82 +50,135 @@ const AttendanceScreen = () => {
 
   // Initialize socket connection
   useEffect(() => {
-    // Create socket connection
-    const newSocket = io(api.SOCKET_API_URL);
-
-    newSocket.on("connect", () => {
-      console.log("Connected to fingerprint server");
-      setMessage("Connected to fingerprint server");
-      setStatus("connecting");
-    });
-
-    newSocket.on("BIOMETRIC_CONNECTED", (data) => {
-      console.log("Biometric connected:", data);
-      setMessage("Biometric connected");
-      setStatus("ready");
-
-      if (newSocket.connected) {
-        newSocket.emit("START");
+    // First, check if the server is reachable
+    const checkServerConnection = async () => {
+      try {
+        const result = await api.testConnection();
+        if (!result.success) {
+          console.error(
+            "Server connection failed before socket initialization"
+          );
+          navigate("/server-config");
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.error("Server connection error:", error);
+        navigate("/server-config");
+        return false;
       }
-    });
+    };
 
-    newSocket.on("BIOMETRIC_DISCONNECTED", (data) => {
-      console.log("Biometric disconnected:", data);
-      setMessage("Biometric disconnected");
-      setStatus("error");
-    });
+    // Main initialization function
+    const initializeSocket = async () => {
+      // Only proceed if server is reachable
+      const isServerConnected = await checkServerConnection();
+      if (!isServerConnected) return;
 
-    newSocket.on("disconnect", () => {
-      console.log("Disconnected from fingerprint server");
-      setMessage("Disconnected from fingerprint server");
-      setStatus("error");
-      setIsInitialized(false);
-    });
+      try {
+        // Create socket connection
+        console.log(`Connecting to socket server at ${api.SOCKET_API_URL}`);
+        const newSocket = io(api.SOCKET_API_URL, {
+          reconnectionAttempts: 3, // Try to reconnect only 3 times
+          timeout: 5000, // Connection timeout in ms
+          reconnectionDelay: 1000, // How long to wait before reconnect
+        });
 
-    newSocket.on("CAPTURE", (data) => {
-      console.log("Fingerprint captured:", data);
-      setFingerprintData(data);
-      setMessage("Fingerprint captured successfully");
-      setStatus("capturing");
-    });
+        newSocket.on("connect", () => {
+          console.log("Connected to fingerprint server");
+          setMessage("Connected to fingerprint server");
+          setStatus("connecting");
+        });
 
-    // Listen for fingerprint capture results
-    newSocket.on("FINGERPRINT_CAPTURE", (data) => {
-      setFingerprintData(data);
-      setMessage("Fingerprint captured successfully");
-      setStatus("verifying");
-    });
+        newSocket.on("connect_error", (error) => {
+          console.error("Socket connection error:", error);
+          setMessage("Could not connect to fingerprint server");
+          setStatus("error");
+          // Redirect to server config after a short delay
+          setTimeout(() => {
+            navigate("/server-config");
+          }, 3000);
+        });
 
-    newSocket.on("VERIFY_RESULT", (data) => {
-      const result = JSON.parse(data.result);
+        newSocket.on("BIOMETRIC_CONNECTED", (data) => {
+          console.log("Biometric connected:", data);
+          setMessage("Biometric connected");
+          setStatus("ready");
 
-      if (result.result === "success") {
-        // employee is the same structure of the employee object in the database
-        setEmployee(result.employee);
-        setMessage("Employee found: " + result.employee.display_name);
-        setStatus("processing"); // Change to processing to handle attendance logic
-        handleEmployeeIdentified(result.employee);
-      } else {
-        setMessage("Employee not found");
+          if (newSocket.connected) {
+            newSocket.emit("START");
+          }
+        });
+
+        newSocket.on("BIOMETRIC_DISCONNECTED", (data) => {
+          console.log("Biometric disconnected:", data);
+          setMessage("Biometric disconnected");
+          setStatus("error");
+        });
+
+        newSocket.on("disconnect", () => {
+          console.log("Disconnected from fingerprint server");
+          setMessage("Disconnected from fingerprint server");
+          setStatus("error");
+          setIsInitialized(false);
+        });
+
+        newSocket.on("CAPTURE", (data) => {
+          console.log("Fingerprint captured:", data);
+          setFingerprintData(data);
+          setMessage("Fingerprint captured successfully");
+          setStatus("capturing");
+        });
+
+        // Listen for fingerprint capture results
+        newSocket.on("FINGERPRINT_CAPTURE", (data) => {
+          setFingerprintData(data);
+          setMessage("Fingerprint captured successfully");
+          setStatus("verifying");
+        });
+
+        newSocket.on("VERIFY_RESULT", (data) => {
+          const result = JSON.parse(data.result);
+
+          if (result.result === "success") {
+            // employee is the same structure of the employee object in the database
+            setEmployee(result.employee);
+            setMessage("Employee found: " + result.employee.display_name);
+            setStatus("processing"); // Change to processing to handle attendance logic
+            handleEmployeeIdentified(result.employee);
+          } else {
+            setMessage("Employee not found");
+            setStatus("error");
+            setEmployee(null);
+
+            // Reset after 5 seconds
+            setTimeout(() => {
+              resetScan();
+            }, 2000);
+          }
+        });
+
+        setSocket(newSocket);
+      } catch (error) {
+        console.error("Error initializing socket:", error);
+        setMessage("Failed to connect to server");
         setStatus("error");
-        setEmployee(null);
-
-        // Reset after 5 seconds
+        // Redirect to server config after a short delay
         setTimeout(() => {
-          resetScan();
-        }, 2000);
+          navigate("/server-config");
+        }, 3000);
       }
-    });
+    };
 
-    setSocket(newSocket);
+    initializeSocket();
 
     // Clean up on component unmount
     return () => {
-      if (newSocket) {
-        newSocket.disconnect();
+      if (socket) {
+        socket.disconnect();
       }
     };
-  }, []);
+  }, [navigate]); // Add navigate to dependency array
 
   useEffect(() => {
     if (socket) {
@@ -498,7 +553,15 @@ const AttendanceScreen = () => {
 
   return (
     <Box
-      sx={{ height: "100vh", display: "flex", flexDirection: "column", p: 2 }}
+      sx={{
+        height: "100vh",
+        width: "100vw",
+        display: "flex",
+        flexDirection: "column",
+        p: { xs: 2, sm: 3 },
+        overflow: "hidden",
+        backgroundColor: "#f5f7fa",
+      }}
     >
       {/* Header */}
       <Box
@@ -506,14 +569,19 @@ const AttendanceScreen = () => {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          mb: 2,
+          mb: 3,
+          py: 1,
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center" }}>
-          <img src={logo} alt="Logo" style={{ height: 40, marginRight: 16 }} />
-          <Typography variant="h4">Attendance System</Typography>
+          <img src={logo} alt="Logo" style={{ height: 50, marginRight: 16 }} />
+          <Typography variant="h4" sx={{ fontWeight: 600 }}>
+            Attendance System
+          </Typography>
         </Box>
-        <Typography variant="h4">{currentTime.toLocaleTimeString()}</Typography>
+        <Typography variant="h4" sx={{ fontWeight: 500 }}>
+          {currentTime.toLocaleTimeString()}
+        </Typography>
       </Box>
 
       {/* Main Content - Split Screen Layout */}
@@ -522,15 +590,16 @@ const AttendanceScreen = () => {
           flex: 1,
           display: "flex",
           flexDirection: { xs: "column", md: "row" },
-          gap: 2,
+          gap: 3,
           overflow: "hidden",
+          height: "calc(100vh - 100px)", // Adjust for header height
         }}
       >
         {/* Left side - Check In/Out */}
         <Paper
           elevation={3}
           sx={{
-            p: { xs: 2, sm: 3 },
+            p: { xs: 3, sm: 4 },
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -538,6 +607,7 @@ const AttendanceScreen = () => {
             width: { xs: "100%", md: "40%" },
             height: { xs: "auto", md: "100%" },
             overflow: "auto",
+            borderRadius: 2,
           }}
         >
           <Typography variant="h5" gutterBottom align="center">
@@ -640,12 +710,13 @@ const AttendanceScreen = () => {
         <Paper
           elevation={3}
           sx={{
-            p: { xs: 2, sm: 3 },
+            p: { xs: 3, sm: 4 },
             width: { xs: "100%", md: "60%" },
             height: { xs: "auto", md: "100%" },
             overflow: "auto",
             display: "flex",
             flexDirection: "column",
+            borderRadius: 2,
           }}
         >
           <Box

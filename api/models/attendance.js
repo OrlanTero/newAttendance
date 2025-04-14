@@ -218,16 +218,26 @@ class Attendance {
       const now = new Date().toISOString();
       const check_in = attendanceData.check_in || now;
       const status = attendanceData.status || "present";
+      const remarks = attendanceData.remarks || null;
 
       return new Promise((resolve, reject) => {
         db.db.run(
           `
           INSERT INTO attendance (
-            employee_id, date, check_in, status, created_at, updated_at
+            employee_id, date, check_in, check_out, status, remarks, created_at, updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `,
-          [employee_id, date, check_in, status, now, now],
+          [
+            employee_id,
+            date,
+            check_in,
+            attendanceData.check_out || null,
+            status,
+            remarks,
+            now,
+            now,
+          ],
           function (err) {
             if (err) {
               console.error(
@@ -297,14 +307,24 @@ class Attendance {
       let setClause = [];
       let params = [];
 
-      if (attendanceData.check_out) {
+      if (attendanceData.check_in !== undefined) {
+        setClause.push("check_in = ?");
+        params.push(attendanceData.check_in);
+      }
+
+      if (attendanceData.check_out !== undefined) {
         setClause.push("check_out = ?");
         params.push(attendanceData.check_out);
       }
 
-      if (attendanceData.status) {
+      if (attendanceData.status !== undefined) {
         setClause.push("status = ?");
         params.push(attendanceData.status);
+      }
+
+      if (attendanceData.remarks !== undefined) {
+        setClause.push("remarks = ?");
+        params.push(attendanceData.remarks);
       }
 
       // Always update the updated_at field
@@ -609,6 +629,92 @@ class Attendance {
     } catch (error) {
       console.error("Error searching attendance:", error);
       return [];
+    }
+  }
+
+  // Manual log entry for admin
+  static async createManualLog(attendanceData) {
+    try {
+      console.log(
+        "Creating manual attendance log with data:",
+        JSON.stringify(attendanceData)
+      );
+
+      // Validate required fields
+      const { employee_id, date } = attendanceData;
+
+      if (!employee_id || !date) {
+        console.log("Missing required fields:", { employee_id, date });
+        return {
+          success: false,
+          message: "Employee ID and date are required",
+        };
+      }
+
+      // Use direct SQL to create a manual attendance log
+      const now = new Date().toISOString();
+      const check_in = attendanceData.check_in || null;
+      const check_out = attendanceData.check_out || null;
+      const status = attendanceData.status || "present";
+      const remarks = attendanceData.remarks || "Manual entry by admin";
+
+      return new Promise((resolve, reject) => {
+        db.db.run(
+          `
+          INSERT INTO attendance (
+            employee_id, date, check_in, check_out, status, remarks, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [employee_id, date, check_in, check_out, status, remarks, now, now],
+          function (err) {
+            if (err) {
+              console.error(
+                "Direct SQL error in manual attendance creation:",
+                err.message
+              );
+              resolve({ success: false, message: err.message });
+              return;
+            }
+
+            console.log(
+              "Manual attendance record created with ID:",
+              this.lastID
+            );
+
+            // Get the newly created record
+            db.db.get(
+              `
+              SELECT a.*, e.display_name, e.unique_id 
+              FROM attendance a
+              JOIN employees e ON a.employee_id = e.employee_id
+              WHERE a.attendance_id = ?
+              `,
+              [this.lastID],
+              (err, row) => {
+                if (err) {
+                  console.error(
+                    "Error retrieving inserted record:",
+                    err.message
+                  );
+                  resolve({ success: false, message: err.message });
+                  return;
+                }
+
+                console.log("Retrieved manual inserted record:", row);
+                resolve({
+                  success: true,
+                  data: row,
+                  message: "Manual attendance record created successfully",
+                });
+              }
+            );
+          }
+        );
+      });
+    } catch (error) {
+      console.error("Error creating manual attendance record:", error);
+      return { success: false, message: error.message };
     }
   }
 }

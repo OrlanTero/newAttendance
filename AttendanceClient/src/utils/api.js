@@ -1,8 +1,67 @@
 // API utility for the renderer process
 
-export const IPADDRESS = "192.168.1.17";
-export const API_URL = `http://${IPADDRESS}:3000/api`;
-export const SOCKET_API_URL = `http://${IPADDRESS}:3006`;
+// Initialize with a default IP address that will be updated
+let IPADDRESS = "192.168.1.12"; // Updated to match the actual server IP
+let API_URL = `http://${IPADDRESS}:3000/api`;
+let SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+
+// Update IP address from localStorage if available
+if (typeof window !== "undefined" && window.localStorage) {
+  const savedIp = localStorage.getItem("serverIpAddress");
+  if (savedIp) {
+    IPADDRESS = savedIp;
+    API_URL = `http://${IPADDRESS}:3000/api`;
+    SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+    console.log(`Loaded IP address from localStorage: ${IPADDRESS}`);
+  }
+}
+
+// Set up listener for IP address updates from main process
+if (typeof window !== "undefined" && window.ipConfig) {
+  // Request IP from main process
+  window.ipConfig
+    .getLocalIp()
+    .then((ip) => {
+      // Only update if we don't have a localStorage IP (localStorage takes precedence)
+      if (!localStorage.getItem("serverIpAddress")) {
+        IPADDRESS = ip;
+        API_URL = `http://${IPADDRESS}:3000/api`;
+        SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+        console.log(`Updated IP address from main process: ${IPADDRESS}`);
+      }
+    })
+    .catch((err) => {
+      console.error(
+        "Failed to get IP from main process, using fallback address:",
+        err
+      );
+      // Keep using the default IP address
+    });
+
+  // Listen for IP address updates
+  window.ipConfig.onIpUpdate((ip) => {
+    // Only update if we don't have a localStorage IP (localStorage takes precedence)
+    if (!localStorage.getItem("serverIpAddress")) {
+      IPADDRESS = ip;
+      API_URL = `http://${IPADDRESS}:3000/api`;
+      SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+      console.log(`IP address updated via IPC: ${IPADDRESS}`);
+    }
+  });
+}
+
+// Utility function to update server IP address dynamically
+export function updateServerIp(ipAddress) {
+  IPADDRESS = ipAddress;
+  API_URL = `http://${IPADDRESS}:3000/api`;
+  SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+  console.log(`Manually updated server IP address to: ${IPADDRESS}`);
+  return { API_URL, SOCKET_API_URL };
+}
+
+// Export variables so they can be updated
+export { IPADDRESS, API_URL, SOCKET_API_URL };
+
 // Helper function to format dates consistently in the local timezone
 function formatDateForAPI(date) {
   if (!date) return "";
@@ -122,11 +181,48 @@ async function fetchAPI(endpoint, options = {}) {
 
 // Test API connection
 export async function testConnection() {
+  console.log(`Testing connection to API server at ${API_URL}/auth/test`);
   try {
-    return await fetchAPI("/auth/test");
+    // Use a timeout for the fetch request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // Increase timeout to 5 seconds
+
+    console.log(`Sending request to ${API_URL}/auth/test`);
+
+    const response = await fetch(`${API_URL}/auth/test`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.error(
+        `API connection test failed with status: ${response.status}, statusText: ${response.statusText}`
+      );
+      return {
+        success: false,
+        message: `Server returned status ${response.status}: ${response.statusText}`,
+      };
+    }
+
+    const data = await response.json();
+    console.log("API connection test succeeded:", data);
+    return data;
   } catch (error) {
+    if (error.name === "AbortError") {
+      console.error("API connection test timed out");
+      return { success: false, message: "Connection timed out" };
+    }
     console.error("API connection test failed:", error);
-    return { success: false, message: "API connection failed" };
+    return {
+      success: false,
+      message: error.message || "Connection failed",
+      details: error.toString(),
+    };
   }
 }
 

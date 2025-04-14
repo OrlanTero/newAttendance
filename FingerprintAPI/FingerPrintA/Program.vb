@@ -1,10 +1,30 @@
 ﻿Module Program
-    ' Reference to server instances to keep them from being garbage collected
-    Private serverInstance1 As SocketFingerprintServer
-    Private serverInstance2 As SocketFingerprintServer
+    ' Reference to server instance to keep it from being garbage collected
+    Private serverInstance As SocketFingerprintServer
 
     Sub Main()
+        Dim args = Environment.GetCommandLineArgs()
+        If args.Length > 1 Then
+            Dim serverApiAddress As String = args(1)
+            Dim port As Integer = args(2)
+            ' Use the IP address directly in your API logic
+            'Console.WriteLine("IP address provided: " + ipAddress)
+
+            serverInstance = SocketFingerprintServer.Start(serverApiAddress, port)
+        Else
+            ' Optional fallback IP or error handling
+
+            Console.WriteLine("No IP address provided. Using default IP: 127.0.0.1")
+
+            ' Start the server with a default IP address
+            serverInstance = SocketFingerprintServer.Start("localhost", 3005)
+        End If
+
         Try
+            Console.WriteLine("========================================================")
+            Console.WriteLine("Fingerprint Service - Single Instance Mode")
+            Console.WriteLine("========================================================")
+
             ' Ask for server API address
             Console.WriteLine("Enter the server API address (e.g. 192.168.1.19):")
             Dim serverApiAddress As String = Console.ReadLine()
@@ -17,45 +37,34 @@
             Console.WriteLine($"Using server API address: {serverApiAddress}")
             Console.WriteLine("Starting fingerprint service...")
 
-            ' First server for main Electron app (server) - Port 3005
-            ' This is the primary instance that controls the biometric device
-            Dim thread1 As New Threading.Thread(Sub()
-                                                    serverInstance1 = SocketFingerprintServer.Start(serverApiAddress, 3005, "Server")
-                                                End Sub)
-            thread1.IsBackground = True
-            thread1.Start()
+            ' Single server instance on port 3005
+            serverInstance = SocketFingerprintServer.Start(serverApiAddress, 3005)
 
-            ' Wait for the first server to initialize
+            ' Add a short delay to allow initialization to complete
+            Console.WriteLine("Waiting for initialization to complete...")
             Threading.Thread.Sleep(2000)
 
-            ' Second server for client Electron app - Port 3006
-            ' This is a secondary instance that just relays events
-            Dim thread2 As New Threading.Thread(Sub()
-                                                    serverInstance2 = SocketFingerprintServer.Start(serverApiAddress, 3006, "Client")
-                                                End Sub)
-            thread2.IsBackground = True
-            thread2.Start()
-
             Console.WriteLine()
             Console.WriteLine("==============================================")
-            Console.WriteLine("Fingerprint service is now running on ports 3005 and 3006")
-            Console.WriteLine("Server instance handling biometric device")
-            Console.WriteLine("Client instance relaying events")
+            Console.WriteLine("Fingerprint service is now running on port 3005")
             Console.WriteLine("==============================================")
             Console.WriteLine()
+            Console.WriteLine("Service is ready to process fingerprints")
+            Console.WriteLine("Press any key to exit...")
+            Console.ReadKey()
+        Catch ex As Exception
+            Console.WriteLine($"Critical error: {ex.Message}")
+            Console.WriteLine(ex.StackTrace)
             Console.WriteLine("Press any key to exit...")
             Console.ReadKey()
         Finally
             ' Clean up resources when exiting
-            If serverInstance1 IsNot Nothing Then
-                serverInstance1.Close()
+            Console.WriteLine("Shutting down fingerprint service...")
+            If serverInstance IsNot Nothing Then
+                serverInstance.Close()
             End If
 
-            If serverInstance2 IsNot Nothing Then
-                serverInstance2.Close()
-            End If
-
-            Console.WriteLine("Fingerprint servers closed.")
+            Console.WriteLine("Fingerprint server closed.")
         End Try
     End Sub
 End Module

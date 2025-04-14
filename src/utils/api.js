@@ -278,12 +278,28 @@ export async function deleteEmployee(id) {
 // Department APIs
 export const getDepartments = async (searchTerm = "") => {
   try {
-    const response = await fetchAPI(
-      `/departments${
-        searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ""
-      }`
-    );
-    return response.data || [];
+    const queryString = searchTerm
+      ? `?search=${encodeURIComponent(searchTerm)}`
+      : "";
+    const response = await fetch(`${API_URL}/departments${queryString}`);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("Department API error:", errorData);
+      return [];
+    }
+
+    const data = await response.json();
+
+    // Check if we received an array directly or if we need to extract the data property
+    if (Array.isArray(data)) {
+      return data;
+    } else if (data.success && Array.isArray(data.data)) {
+      return data.data;
+    } else {
+      console.warn("Department data format unexpected:", data);
+      return [];
+    }
   } catch (error) {
     console.error("Error in getDepartments:", error);
     return [];
@@ -414,6 +430,111 @@ export const deleteHoliday = async (holidayId) => {
     };
   }
 };
+
+// Event APIs
+export async function getEvents() {
+  try {
+    const response = await fetchAPI("/events");
+    return response.data || [];
+  } catch (error) {
+    console.error("Error fetching events:", error);
+    return [];
+  }
+}
+
+export async function getUpcomingEvents(limit = 5) {
+  try {
+    const response = await fetchAPI(`/events/upcoming?limit=${limit}`);
+    return response.data || [];
+  } catch (error) {
+    console.error("Error fetching upcoming events:", error);
+    return [];
+  }
+}
+
+export async function getEvent(eventId) {
+  try {
+    const response = await fetchAPI(`/events/${eventId}`);
+    return response.data || null;
+  } catch (error) {
+    console.error(`Error fetching event ${eventId}:`, error);
+    return null;
+  }
+}
+
+export async function createEvent(eventData) {
+  try {
+    return await fetchAPI("/events", {
+      method: "POST",
+      body: JSON.stringify(eventData),
+    });
+  } catch (error) {
+    console.error("Error creating event:", error);
+    return { success: false, message: "Failed to create event" };
+  }
+}
+
+export async function updateEvent(eventId, eventData) {
+  try {
+    return await fetchAPI(`/events/${eventId}`, {
+      method: "PUT",
+      body: JSON.stringify(eventData),
+    });
+  } catch (error) {
+    console.error(`Error updating event ${eventId}:`, error);
+    return { success: false, message: "Failed to update event" };
+  }
+}
+
+export async function deleteEvent(eventId) {
+  try {
+    return await fetchAPI(`/events/${eventId}`, {
+      method: "DELETE",
+    });
+  } catch (error) {
+    console.error(`Error deleting event ${eventId}:`, error);
+    return { success: false, message: "Failed to delete event" };
+  }
+}
+
+// Get upcoming holidays based on the current date
+export async function getUpcomingHolidays(limit = 3) {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const response = await fetchAPI(
+      `/holidays/upcoming?date=${today}&limit=${limit}`
+    );
+    return response.data || [];
+  } catch (error) {
+    console.error("Error fetching upcoming holidays:", error);
+    return [];
+  }
+}
+
+// Get counts of employees, departments, and holidays
+export async function getDashboardStats() {
+  try {
+    const response = await fetchAPI("/dashboard/stats");
+    return (
+      response.data || {
+        employeesCount: 0,
+        departmentsCount: 0,
+        holidaysCount: 0,
+        upcomingHoliday: null,
+        upcomingEvents: [],
+      }
+    );
+  } catch (error) {
+    console.error("Error fetching dashboard stats:", error);
+    return {
+      employeesCount: 0,
+      departmentsCount: 0,
+      holidaysCount: 0,
+      upcomingHoliday: null,
+      upcomingEvents: [],
+    };
+  }
+}
 
 // Attendance APIs
 export const getAttendanceByDate = async (date) => {
@@ -574,19 +695,22 @@ export async function checkOutEmployee(attendanceId) {
 export const getAttendanceReport = async (
   startDate,
   endDate,
-  employeeId = null
+  employeeId = null,
+  status = null,
+  departmentId = null
 ) => {
   try {
     // Format dates
     const formattedStartDate = formatDateForAPI(startDate);
     const formattedEndDate = formatDateForAPI(endDate);
 
-    console.log(
-      "Generating attendance report from",
-      formattedStartDate,
-      "to",
-      formattedEndDate
-    );
+    console.log("Generating attendance report with parameters:", {
+      startDate: formattedStartDate,
+      endDate: formattedEndDate,
+      employeeId,
+      status,
+      departmentId,
+    });
 
     // Build query parameters
     let endpoint = "/attendance?";
@@ -600,7 +724,16 @@ export const getAttendanceReport = async (
       params.append("employeeId", employeeId);
     }
 
+    if (status) {
+      params.append("status", status);
+    }
+
+    if (departmentId) {
+      params.append("departmentId", departmentId);
+    }
+
     endpoint += params.toString();
+    console.log("Request endpoint:", `${API_URL}${endpoint}`);
 
     // Fetch data
     const response = await fetchAPI(endpoint);
@@ -609,7 +742,7 @@ export const getAttendanceReport = async (
     console.error("Error in getAttendanceReport:", error);
     return {
       success: false,
-      message: "Failed to generate attendance report",
+      message: error.message || "Failed to generate attendance report",
       data: [],
     };
   }
@@ -653,6 +786,193 @@ export const updateEmployeeWorkSchedule = async (employeeId, scheduleData) => {
   }
 };
 
+// Backup API functions
+export const getBackups = async () => {
+  try {
+    return await fetchAPI("/backup");
+  } catch (error) {
+    console.error("Error getting backups:", error);
+    return { success: false, message: "Failed to retrieve backups" };
+  }
+};
+
+export const createBackup = async (name = "") => {
+  try {
+    return await fetchAPI("/backup", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  } catch (error) {
+    console.error("Error creating backup:", error);
+    return { success: false, message: "Failed to create backup" };
+  }
+};
+
+export const deleteBackup = async (fileName) => {
+  try {
+    return await fetchAPI(`/backup/${fileName}`, {
+      method: "DELETE",
+    });
+  } catch (error) {
+    console.error("Error deleting backup:", error);
+    return { success: false, message: "Failed to delete backup" };
+  }
+};
+
+export const restoreBackup = async (fileName) => {
+  try {
+    return await fetchAPI(`/backup/restore/${fileName}`, {
+      method: "POST",
+    });
+  } catch (error) {
+    console.error("Error restoring backup:", error);
+    return { success: false, message: "Failed to restore backup" };
+  }
+};
+
+export const getScheduledBackupStatus = async () => {
+  try {
+    return await fetchAPI("/backup/scheduled/status");
+  } catch (error) {
+    console.error("Error getting scheduled backup status:", error);
+    return { success: false, isRunning: false };
+  }
+};
+
+export const startScheduledBackup = async (schedule) => {
+  try {
+    return await fetchAPI("/backup/scheduled/start", {
+      method: "POST",
+      body: JSON.stringify({ schedule }),
+    });
+  } catch (error) {
+    console.error("Error starting scheduled backup:", error);
+    return { success: false, message: "Failed to start scheduled backup" };
+  }
+};
+
+export const stopScheduledBackup = async () => {
+  try {
+    return await fetchAPI("/backup/scheduled/stop", {
+      method: "POST",
+    });
+  } catch (error) {
+    console.error("Error stopping scheduled backup:", error);
+    return { success: false, message: "Failed to stop scheduled backup" };
+  }
+};
+
+export const getBackupDownloadUrl = (fileName) => {
+  return `${API_URL}/backup/download/${fileName}`;
+};
+
+// Attendance-related functions
+export const getAttendance = async (
+  date = null,
+  employeeId = null,
+  status = null,
+  excludeStatus = null
+) => {
+  try {
+    // Build query parameters
+    let endpoint = "/attendance";
+    const params = new URLSearchParams();
+
+    if (date) {
+      params.append("date", formatDateForAPI(date));
+    }
+
+    if (employeeId) {
+      params.append("employeeId", employeeId);
+    }
+
+    if (status) {
+      params.append("status", status);
+    }
+
+    if (excludeStatus) {
+      params.append("excludeStatus", excludeStatus);
+    }
+
+    // Add params to endpoint if any
+    if (params.toString()) {
+      endpoint += `?${params.toString()}`;
+    }
+
+    // Fetch data
+    const response = await fetchAPI(endpoint);
+    return response;
+  } catch (error) {
+    console.error("Error in getAttendance:", error);
+    return {
+      success: false,
+      message: "Failed to get attendance records",
+      data: [],
+    };
+  }
+};
+
+// Update attendance record
+export const updateAttendance = async (attendanceId, updateData) => {
+  try {
+    if (!attendanceId) {
+      return { success: false, message: "Attendance ID is required" };
+    }
+
+    const response = await fetchAPI(`/attendance/${attendanceId}`, {
+      method: "PUT",
+      body: JSON.stringify(updateData),
+    });
+    return response;
+  } catch (error) {
+    console.error("Error in updateAttendance:", error);
+    return {
+      success: false,
+      message: "Failed to update attendance record",
+    };
+  }
+};
+
+// Create manual attendance log (Admin only)
+export const createManualAttendance = async (attendanceData) => {
+  try {
+    // Convert time fields to ISO format if they exist
+    const formattedData = { ...attendanceData };
+
+    if (formattedData.date && formattedData.check_in) {
+      // Combine date with time for check_in
+      const [hours, minutes] = formattedData.check_in.split(":");
+      const checkInDate = new Date(formattedData.date);
+      checkInDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+      formattedData.check_in = checkInDate.toISOString();
+    } else {
+      formattedData.check_in = null;
+    }
+
+    if (formattedData.date && formattedData.check_out) {
+      // Combine date with time for check_out
+      const [hours, minutes] = formattedData.check_out.split(":");
+      const checkOutDate = new Date(formattedData.date);
+      checkOutDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+      formattedData.check_out = checkOutDate.toISOString();
+    } else {
+      formattedData.check_out = null;
+    }
+
+    const response = await fetchAPI("/attendance/manual", {
+      method: "POST",
+      body: JSON.stringify(formattedData),
+    });
+    return response;
+  } catch (error) {
+    console.error("Error in createManualAttendance:", error);
+    return {
+      success: false,
+      message: "Failed to create manual attendance log",
+    };
+  }
+};
+
 // Make sure dynamic values are properly accessed
 export default {
   testConnection,
@@ -677,6 +997,14 @@ export default {
   createHoliday,
   updateHoliday,
   deleteHoliday,
+  getEvents,
+  getUpcomingEvents,
+  getEvent,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  getUpcomingHolidays,
+  getDashboardStats,
   getAttendanceByDate,
   getAttendanceByDateRange,
   getAttendanceByMonth,
@@ -688,6 +1016,14 @@ export default {
   getAttendanceReport,
   getEmployeeWorkSchedule,
   updateEmployeeWorkSchedule,
+  getBackups,
+  createBackup,
+  deleteBackup,
+  restoreBackup,
+  getScheduledBackupStatus,
+  startScheduledBackup,
+  stopScheduledBackup,
+  getBackupDownloadUrl,
   // Include IP address and API URLs that will be dynamically updated
   get IPADDRESS() {
     return IPADDRESS;

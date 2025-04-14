@@ -121,6 +121,7 @@ function initDatabase() {
                         check_in TIMESTAMP,
                         check_out TIMESTAMP,
                         status TEXT NOT NULL, 
+                        remarks TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (employee_id) REFERENCES employees(employee_id)
@@ -180,7 +181,9 @@ function initDatabase() {
 
                                 if (!row) {
                                   // Create new admin if it doesn't exist
-                                  console.log("Admin user does not exist. Creating default Admin account...");
+                                  console.log(
+                                    "Admin user does not exist. Creating default Admin account..."
+                                  );
                                   db.run(
                                     `
                                     INSERT INTO users (username, password, display_name)
@@ -196,28 +199,39 @@ function initDatabase() {
                                         reject(err);
                                         return;
                                       }
-                                      console.log("Default Admin user created with password 'Admin'");
+                                      console.log(
+                                        "Default Admin user created with password 'Admin'"
+                                      );
                                       resolve(true);
                                     }
                                   );
                                 } else {
                                   // If Admin exists but has wrong password, update it
                                   if (row.password !== "Admin") {
-                                    console.log("Admin user exists but has incorrect password. Updating to 'Admin'...");
+                                    console.log(
+                                      "Admin user exists but has incorrect password. Updating to 'Admin'..."
+                                    );
                                     db.run(
                                       `UPDATE users SET password = 'Admin' WHERE username = 'Admin'`,
-                                      function(err) {
+                                      function (err) {
                                         if (err) {
-                                          console.error("Error updating admin password:", err.message);
+                                          console.error(
+                                            "Error updating admin password:",
+                                            err.message
+                                          );
                                           reject(err);
                                           return;
                                         }
-                                        console.log("Admin password updated to 'Admin'");
+                                        console.log(
+                                          "Admin password updated to 'Admin'"
+                                        );
                                         resolve(true);
                                       }
                                     );
                                   } else {
-                                    console.log("Admin user exists with correct password");
+                                    console.log(
+                                      "Admin user exists with correct password"
+                                    );
                                     resolve(true);
                                   }
                                 }
@@ -509,6 +523,6 @@ module.exports = {
   deleteUser: dbMethods.deleteUser,
   authenticateUser: dbMethods.authenticateUser,
   closeDatabase: dbMethods.closeDatabase,
-  
+
   // Add all other methods as needed
 };

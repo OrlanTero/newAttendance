@@ -3,7 +3,7 @@
 
 const { contextBridge, ipcRenderer } = require("electron");
 
-// Whitelist of valid channels for security
+// Add IP address communication channels
 const validSendChannels = [
   "login",
   "logout",
@@ -12,6 +12,9 @@ const validSendChannels = [
   "fingerprint-verify",
   "fingerprint-register",
   "fingerprint-status",
+  "get-local-ip", // Add channel to request the IP address
+  "toggle-fullscreen", // Add channel to toggle fullscreen
+  "check-fullscreen", // Add channel to check fullscreen status
 ];
 
 const validReceiveChannels = [
@@ -23,6 +26,8 @@ const validReceiveChannels = [
   "fingerprint-verify-response",
   "fingerprint-register-response",
   "fingerprint-status-response",
+  "local-ip-address", // Add channel to receive the IP address
+  "fullscreen-status", // Add channel to receive fullscreen status
 ];
 
 // Expose protected methods that allow the renderer process to use
@@ -56,5 +61,22 @@ contextBridge.exposeInMainWorld("electron", {
         ipcRenderer.removeAllListeners(channel);
       }
     },
+  },
+});
+
+// Create an additional API for IP address management
+contextBridge.exposeInMainWorld("ipConfig", {
+  getLocalIp: () => ipcRenderer.invoke("get-local-ip"),
+  onIpUpdate: (callback) => {
+    ipcRenderer.on("local-ip-address", (event, data) => callback(data));
+  },
+});
+
+// Create an API for window management
+contextBridge.exposeInMainWorld("windowManager", {
+  toggleFullscreen: () => ipcRenderer.send("toggle-fullscreen"),
+  checkFullscreen: () => ipcRenderer.send("check-fullscreen"),
+  onFullscreenChange: (callback) => {
+    ipcRenderer.on("window-state-change", (event, data) => callback(data));
   },
 });

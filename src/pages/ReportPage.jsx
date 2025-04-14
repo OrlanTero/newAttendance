@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import * as api from "../utils/api";
 import Navbar from "../components/Navbar";
 import { PDFExport } from "@progress/kendo-react-pdf";
+import "../utils/kendoLicense";
 import {
   Box,
   Container,
@@ -40,6 +41,7 @@ import {
   Cancel,
   AccessTime,
   Event,
+  ClearAll as ClearAllIcon,
 } from "@mui/icons-material";
 import {
   format,
@@ -59,7 +61,19 @@ const ReportPage = ({ user, onLogout }) => {
   ); // First day of current month
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd")); // Today
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState("");
   const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+
+  // Status options for the filter
+  const statusOptions = [
+    { value: "", label: "All Statuses" },
+    { value: "present", label: "Present" },
+    { value: "late", label: "Late" },
+    { value: "absent", label: "Absent" },
+    { value: "undertime", label: "Undertime" },
+  ];
 
   // State for holidays and report data
   const [holidays, setHolidays] = useState([]);
@@ -69,6 +83,7 @@ const ReportPage = ({ user, onLogout }) => {
     presentDays: 0,
     absentDays: 0,
     lateDays: 0,
+    undertimeDays: 0,
     totalHoursWorked: 0,
     avgHoursPerDay: 0,
   });
@@ -82,6 +97,7 @@ const ReportPage = ({ user, onLogout }) => {
   // Fetch employees and holidays on component mount
   useEffect(() => {
     fetchEmployees();
+    fetchDepartments();
     fetchHolidays();
   }, []);
 
@@ -94,6 +110,8 @@ const ReportPage = ({ user, onLogout }) => {
     startDate,
     endDate,
     selectedEmployeeId,
+    selectedDepartmentId,
+    selectedStatus,
     excludeWeekends,
     excludeHolidays,
   ]);
@@ -112,6 +130,22 @@ const ReportPage = ({ user, onLogout }) => {
     }
   };
 
+  const fetchDepartments = async () => {
+    try {
+      const result = await api.getDepartments();
+      console.log("Department data received:", result);
+      if (Array.isArray(result)) {
+        setDepartments(result);
+      } else {
+        console.error("Unexpected department data format:", result);
+        setError("Failed to fetch departments");
+      }
+    } catch (error) {
+      console.error("Error fetching departments:", error);
+      setError("Failed to fetch departments");
+    }
+  };
+
   const fetchHolidays = async () => {
     try {
       const result = await api.getHolidays();
@@ -127,15 +161,28 @@ const ReportPage = ({ user, onLogout }) => {
       setLoading(true);
       setError("");
 
-      // Use the new API function for reports
+      console.log("Generating report with filters:", {
+        startDate,
+        endDate,
+        employeeId: selectedEmployeeId || null,
+        status: selectedStatus || null,
+        departmentId: selectedDepartmentId || null,
+      });
+
+      // Use the API function for reports
       const reportResult = await api.getAttendanceReport(
         startDate,
         endDate,
-        selectedEmployeeId || null
+        selectedEmployeeId || null,
+        selectedStatus || null,
+        selectedDepartmentId || null
       );
+
+      console.log("Report API response:", reportResult);
 
       if (reportResult.success) {
         let records = reportResult.data || [];
+        console.log(`Retrieved ${records.length} records before filtering`);
 
         // Filter out weekends if selected
         if (excludeWeekends) {
@@ -143,6 +190,7 @@ const ReportPage = ({ user, onLogout }) => {
             const date = new Date(record.date);
             return !isWeekend(date);
           });
+          console.log(`${records.length} records after weekend filtering`);
         }
 
         // Filter out holidays if selected
@@ -150,6 +198,7 @@ const ReportPage = ({ user, onLogout }) => {
           records = records.filter((record) => {
             return !holidays.some((holiday) => holiday.date === record.date);
           });
+          console.log(`${records.length} records after holiday filtering`);
         }
 
         // Process data to calculate hours worked
@@ -177,10 +226,13 @@ const ReportPage = ({ user, onLogout }) => {
           0
         );
         const presentDays = processedRecords.filter(
-          (r) => r.check_in && r.check_out
+          (r) => r.check_in && r.check_out && r.status === "present"
         ).length;
         const lateDays = processedRecords.filter(
           (r) => r.status === "late"
+        ).length;
+        const undertimeDays = processedRecords.filter(
+          (r) => r.status === "undertime"
         ).length;
         const workingDays = getWorkingDaysInRange(
           startDate,
@@ -193,8 +245,9 @@ const ReportPage = ({ user, onLogout }) => {
         setReportSummary({
           totalDays: workingDays,
           presentDays,
-          absentDays: workingDays - presentDays,
+          absentDays: workingDays - presentDays - lateDays - undertimeDays,
           lateDays,
+          undertimeDays,
           totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
           avgHoursPerDay:
             presentDays > 0
@@ -202,11 +255,15 @@ const ReportPage = ({ user, onLogout }) => {
               : 0,
         });
       } else {
-        setError("Failed to fetch attendance data");
+        console.error("API error in report generation:", reportResult);
+        setError(
+          "Failed to fetch attendance data: " +
+            (reportResult.message || "Unknown error")
+        );
       }
     } catch (error) {
       console.error("Error generating report:", error);
-      setError("Failed to generate report");
+      setError("Failed to generate report: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -274,6 +331,8 @@ const ReportPage = ({ user, onLogout }) => {
         return "#ff9800";
       case "absent":
         return "#f44336";
+      case "undertime":
+        return "#9c27b0";
       default:
         return "#9e9e9e";
     }
@@ -285,11 +344,31 @@ const ReportPage = ({ user, onLogout }) => {
     }
   };
 
+  const handleClearFilters = () => {
+    setStartDate(format(new Date(new Date().setDate(1)), "yyyy-MM-dd"));
+    setEndDate(format(new Date(), "yyyy-MM-dd"));
+    setSelectedEmployeeId("");
+    setSelectedDepartmentId("");
+    setSelectedStatus("");
+    setExcludeWeekends(true);
+    setExcludeHolidays(true);
+  };
+
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        overflow: "hidden",
+      }}
+    >
       <Navbar user={user} onLogout={onLogout} title="Attendance Reports" />
 
-      <Container maxWidth="xl" sx={{ mt: 4, mb: 4, flexGrow: 1 }}>
+      <Container
+        maxWidth="xl"
+        sx={{ mt: 4, mb: 4, flexGrow: 1, overflow: "auto" }}
+      >
         <Paper sx={{ p: 3, mb: 3 }}>
           <Typography variant="h5" gutterBottom>
             Generate Attendance Report
@@ -297,6 +376,11 @@ const ReportPage = ({ user, onLogout }) => {
 
           {/* Report Filters */}
           <Grid container spacing={3} sx={{ mb: 4 }}>
+            <Grid item xs={12} md={12}>
+              <Typography variant="subtitle1" gutterBottom>
+                Filter Options
+              </Typography>
+            </Grid>
             <Grid item xs={12} sm={6} md={3}>
               <TextField
                 fullWidth
@@ -304,6 +388,7 @@ const ReportPage = ({ user, onLogout }) => {
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
+                InputLabelProps={{ shrink: true }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -360,6 +445,59 @@ const ReportPage = ({ user, onLogout }) => {
             </Grid>
 
             <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth>
+                <InputLabel id="department-select-label">Department</InputLabel>
+                <Select
+                  labelId="department-select-label"
+                  id="department-select"
+                  value={selectedDepartmentId}
+                  label="Department"
+                  onChange={(e) => setSelectedDepartmentId(e.target.value)}
+                  startAdornment={
+                    <InputAdornment position="start">
+                      <Description />
+                    </InputAdornment>
+                  }
+                >
+                  <MenuItem value="">All Departments</MenuItem>
+                  {departments.map((department) => (
+                    <MenuItem
+                      key={department.department_id}
+                      value={department.department_id}
+                    >
+                      {department.name || department.department_name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth>
+                <InputLabel id="status-select-label">Status</InputLabel>
+                <Select
+                  labelId="status-select-label"
+                  id="status-select"
+                  value={selectedStatus}
+                  label="Status"
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  startAdornment={
+                    <InputAdornment position="start">
+                      <CheckCircle />
+                    </InputAdornment>
+                  }
+                >
+                  <MenuItem value="">All Statuses</MenuItem>
+                  {statusOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
               <Stack direction="row" spacing={1}>
                 <Button
                   variant="contained"
@@ -377,6 +515,29 @@ const ReportPage = ({ user, onLogout }) => {
                   Print
                 </Button>
               </Stack>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Button
+                fullWidth
+                variant="contained"
+                color="primary"
+                onClick={generateReport}
+                startIcon={<FilterAlt />}
+              >
+                Generate Report
+              </Button>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={handleClearFilters}
+                startIcon={<ClearAllIcon />}
+              >
+                Clear Filters
+              </Button>
             </Grid>
 
             <Grid item xs={12} sm={6}>
@@ -445,14 +606,48 @@ const ReportPage = ({ user, onLogout }) => {
                 <Typography variant="subtitle1">
                   Period: {formatDate(startDate)} to {formatDate(endDate)}
                 </Typography>
-                <Typography variant="subtitle2">
-                  {selectedEmployeeId
-                    ? `Employee: ${
-                        employees.find(
-                          (e) => e.employee_id === parseInt(selectedEmployeeId)
-                        )?.display_name || "Selected Employee"
-                      }`
-                    : "All Employees"}
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    justifyContent: "center",
+                    gap: 1,
+                  }}
+                >
+                  {selectedEmployeeId ? (
+                    <span>
+                      Employee:{" "}
+                      {employees.find(
+                        (e) => e.employee_id === parseInt(selectedEmployeeId)
+                      )?.display_name || "Selected Employee"}
+                    </span>
+                  ) : (
+                    <span>All Employees</span>
+                  )}
+
+                  {selectedDepartmentId && (
+                    <span>
+                      | Department:{" "}
+                      {departments.find(
+                        (d) =>
+                          d.department_id === parseInt(selectedDepartmentId)
+                      )?.name ||
+                        departments.find(
+                          (d) =>
+                            d.department_id === parseInt(selectedDepartmentId)
+                        )?.department_name ||
+                        "Selected Department"}
+                    </span>
+                  )}
+
+                  {selectedStatus && (
+                    <span>
+                      | Status:{" "}
+                      {statusOptions.find((s) => s.value === selectedStatus)
+                        ?.label || selectedStatus}
+                    </span>
+                  )}
                 </Typography>
               </Box>
 
@@ -510,6 +705,18 @@ const ReportPage = ({ user, onLogout }) => {
                   <Card>
                     <CardContent sx={{ textAlign: "center" }}>
                       <Typography color="textSecondary" gutterBottom>
+                        Under Time
+                      </Typography>
+                      <Typography variant="h4" sx={{ color: "#9c27b0" }}>
+                        {reportSummary.undertimeDays}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={2}>
+                  <Card>
+                    <CardContent sx={{ textAlign: "center" }}>
+                      <Typography color="textSecondary" gutterBottom>
                         Total Hours
                       </Typography>
                       <Typography variant="h4">
@@ -518,7 +725,7 @@ const ReportPage = ({ user, onLogout }) => {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} sm={6} md={2}>
+                <Grid item xs={12} md={12}>
                   <Card>
                     <CardContent sx={{ textAlign: "center" }}>
                       <Typography color="textSecondary" gutterBottom>
@@ -542,17 +749,19 @@ const ReportPage = ({ user, onLogout }) => {
                     <TableRow>
                       <TableCell>Date</TableCell>
                       {!selectedEmployeeId && <TableCell>Employee</TableCell>}
+                      {!selectedEmployeeId && <TableCell>Department</TableCell>}
                       <TableCell>Check In</TableCell>
                       <TableCell>Check Out</TableCell>
                       <TableCell>Hours Worked</TableCell>
                       <TableCell>Status</TableCell>
+                      <TableCell>Remarks</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {attendanceData.length === 0 ? (
                       <TableRow>
                         <TableCell
-                          colSpan={selectedEmployeeId ? 5 : 6}
+                          colSpan={selectedEmployeeId ? 6 : 8}
                           align="center"
                         >
                           No attendance records found for the selected period.
@@ -564,6 +773,11 @@ const ReportPage = ({ user, onLogout }) => {
                           <TableCell>{formatDate(record.date)}</TableCell>
                           {!selectedEmployeeId && (
                             <TableCell>{record.display_name}</TableCell>
+                          )}
+                          {!selectedEmployeeId && (
+                            <TableCell>
+                              {record.department_name || "—"}
+                            </TableCell>
                           )}
                           <TableCell>{formatTime(record.check_in)}</TableCell>
                           <TableCell>{formatTime(record.check_out)}</TableCell>
@@ -579,6 +793,7 @@ const ReportPage = ({ user, onLogout }) => {
                               }}
                             />
                           </TableCell>
+                          <TableCell>{record.remarks || "—"}</TableCell>
                         </TableRow>
                       ))
                     )}

@@ -1,5 +1,6 @@
 const path = require("path");
 const webpack = require("webpack");
+const CopyWebpackPlugin = require("copy-webpack-plugin");
 
 module.exports = {
   mode: "development",
@@ -7,7 +8,7 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, "src/dist"),
     filename: "renderer.js",
-    publicPath: "/",
+    publicPath: "./dist/",
   },
   module: {
     rules: [
@@ -54,8 +55,33 @@ module.exports = {
   },
   resolve: {
     extensions: [".js", ".jsx"],
+    fallback: {
+      // Provide polyfills for Node.js core modules or disable them
+      os: false,
+      fs: false,
+      path: require.resolve("path-browserify"),
+      stream: require.resolve("stream-browserify"),
+      buffer: require.resolve("buffer/"),
+      util: require.resolve("util/"),
+    },
   },
-  plugins: [new webpack.HotModuleReplacementPlugin()],
+  plugins: [
+    new webpack.HotModuleReplacementPlugin(),
+    // Provide global variables for browser polyfills
+    new webpack.ProvidePlugin({
+      process: "process/browser",
+      Buffer: ["buffer", "Buffer"],
+    }),
+    // Copy assets to the output directory
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: "src/assets",
+          to: "assets",
+        },
+      ],
+    }),
+  ],
   devServer: {
     hot: true,
     static: {

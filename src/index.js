@@ -139,13 +139,25 @@ const createMainWindow = () => {
 
   // Get the local IP address
   const localIp = getLocalIpAddress();
+
   console.log(`Using local IP address: ${localIp}`);
 
   // Determine the correct path to server.js based on whether we're in development or production
   let serverPath;
+  let fingerprintServerPath;
   try {
     if (isDev) {
       serverPath = path.join(__dirname, "..", "api", "server.js");
+      fingerprintServerPath = path.join(
+        __dirname,
+        "..",
+        "FingerprintAPI",
+        "FingerPrintA",
+        "bin",
+        "Debug",
+        "net8.0-windows",
+        "FingerPrintA.exe"
+      );
     } else {
       // Try multiple approaches to find the API server
       const appPath = app.getAppPath();
@@ -158,6 +170,17 @@ const createMainWindow = () => {
         "api",
         "server.js"
       );
+
+      fingerprintServerPath = path.join(
+        extraResourcesPath,
+        "FingerprintAPI",
+        "FingerPrintA",
+        "bin",
+        "Debug",
+        "net8.0-windows",
+        "FingerPrintA.exe"
+      );
+
       console.log("Checking for API in resources:", apiInResourcesPath);
 
       if (fs.existsSync(apiInResourcesPath)) {
@@ -168,6 +191,7 @@ const createMainWindow = () => {
         const basePath = appPath.includes("app.asar")
           ? path.dirname(appPath)
           : appPath;
+
         const apiRelativePath = path.join(basePath, "..", "api", "server.js");
         console.log("Checking for API relative to app:", apiRelativePath);
 
@@ -179,6 +203,29 @@ const createMainWindow = () => {
           const apiFallbackPath = path.join(basePath, "api", "server.js");
           console.log("Using fallback API path:", apiFallbackPath);
           serverPath = apiFallbackPath;
+        }
+
+        if (!fs.existsSync(fingerprintServerPath)) {
+          const basePath = appPath.includes("app.asar")
+            ? path.dirname(appPath)
+            : appPath;
+
+          const fingerprintServerFallbackPath = path.join(
+            basePath,
+            "FingerprintAPI",
+            "FingerPrintA",
+            "bin",
+            "Debug",
+            "net8.0-windows",
+            "FingerPrintA.exe"
+          );
+
+          fingerprintServerPath = fingerprintServerFallbackPath;
+
+          console.log(
+            "Using fallback fingerprint server path:",
+            fingerprintServerPath
+          );
         }
       }
     }
@@ -197,6 +244,26 @@ const createMainWindow = () => {
       LOCAL_IP_ADDRESS: localIp,
     },
   });
+
+  const fingerprintServerProcess = spawn(
+    fingerprintServerPath,
+    [localIp, 3005],
+    {
+      detached: true,
+      // stdio: "ignore", // Prevents any console logs from showing
+      windowsHide: true,
+    }
+  );
+
+  fingerprintServerProcess.stdout.on("data", (data) =>
+    console.log(`Fingerprint Server: ${data}`)
+  );
+
+  fingerprintServerProcess.stderr.on("data", (data) =>
+    console.error(`Fingerprint Server Error: ${data}`)
+  );
+
+  fingerprintServerProcess.unref();
 
   serverProcess.stdout.on("data", (data) => console.log(`Server: ${data}`));
   serverProcess.stderr.on("data", (data) =>

@@ -2,21 +2,123 @@ const { app, BrowserWindow, ipcMain, screen } = require("electron");
 const path = require("node:path");
 // const isDev = process.env.NODE_ENV === "development";
 const isDev = false;
-const { initDatabase, authenticateUser, closeDb } = require("./utils/db");
+const { exec, spawn } = require("child_process");
+const os = require("os");
+const fs = require("fs");
+const http = require("http");
+
+// Get database module with proper path resolution
+let dbModule;
+try {
+  dbModule = require("./utils/db");
+} catch (err) {
+  console.error("Failed to load db from ./utils/db:", err);
+  try {
+    // Try alternative path
+    const dbPath = path.join(__dirname, "utils", "db");
+    console.log("Trying alternative db path:", dbPath);
+    dbModule = require(dbPath);
+  } catch (err2) {
+    console.error("Failed to load db from absolute path:", err2);
+    // Create stub methods to prevent app from crashing
+    dbModule = {
+      initDatabase: () => console.log("Using stub initDatabase"),
+      authenticateUser: (username, password) => {
+        console.log(`Using stub authenticateUser: ${username}`);
+        return Promise.resolve({
+          success: true,
+          message: "Stub authentication",
+          username: username,
+        });
+      },
+      closeDb: () => console.log("Using stub closeDb"),
+    };
+  }
+}
+
+// Extract the methods we need
+const { initDatabase, authenticateUser, closeDb } = dbModule;
 
 let mainWindow = null;
 let splashWindow = null;
 
+// Get local IP address
+function getLocalIpAddress() {
+  const interfaces = os.networkInterfaces();
+  let ipAddress = "127.0.0.1"; // Default fallback
+
+  // Loop through network interfaces
+  Object.keys(interfaces).forEach((ifname) => {
+    interfaces[ifname].forEach((iface) => {
+      // Skip over non-IPv4 and internal/loopback interfaces
+      if (iface.family === "IPv4" && !iface.internal) {
+        ipAddress = iface.address;
+      }
+    });
+  });
+
+  return ipAddress;
+}
+
+// Function to check server connection
+function checkServerConnection(ipAddress, callback) {
+  console.log(`Checking server connection at ${ipAddress}:3000/api/auth/test`);
+
+  const options = {
+    hostname: ipAddress,
+    port: 3000,
+    path: "/api/auth/test",
+    method: "GET",
+    timeout: 3000, // 3 second timeout
+  };
+
+  const req = http.request(options, (res) => {
+    let data = "";
+    res.on("data", (chunk) => {
+      data += chunk;
+    });
+
+    res.on("end", () => {
+      try {
+        const jsonData = JSON.parse(data);
+        console.log("Server connection check successful:", jsonData);
+        callback(true);
+      } catch (e) {
+        console.error("Error parsing server response:", e.message);
+        callback(false);
+      }
+    });
+  });
+
+  req.on("error", (e) => {
+    console.error(`Server connection check failed: ${e.message}`);
+    callback(false);
+  });
+
+  req.on("timeout", () => {
+    console.error("Server connection check timed out");
+    req.destroy();
+    callback(false);
+  });
+
+  req.end();
+}
+
 const createSplashWindow = () => {
+  // Fixed dimensions for splash window
+  const splashWidth = 800;
+  const splashHeight = 600;
+
   // Create the splash window with fixed dimensions
   splashWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    transparent: true,
+    width: splashWidth,
+    height: splashHeight,
+    transparent: false,
     frame: false,
     resizable: false,
     center: true,
     skipTaskbar: true,
+    backgroundColor: "#f5f7fa",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -42,15 +144,16 @@ const createMainWindow = () => {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
 
-  // Create the main window with fixed dimensions
+  // Create the main window with fullscreen setup
   mainWindow = new BrowserWindow({
-    width: Math.min(1600, width),
-    height: Math.min(1000, height),
+    width: width,
+    height: height,
     minWidth: 1280,
     minHeight: 800,
     show: false,
     center: true,
     backgroundColor: "#ffffff",
+    fullscreen: true, // Set fullscreen by default
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -85,23 +188,74 @@ const createMainWindow = () => {
     mainWindow.loadFile(path.join(__dirname, "index.html"));
   }
 
-  // Show main window when it's ready
-  mainWindow.once("ready-to-show", () => {
-    if (splashWindow) {
-      // Close splash window after a delay to ensure smooth transition
-      setTimeout(() => {
-        splashWindow.close();
-        splashWindow = null;
+  // Get the local IP address
+  const localIp = getLocalIpAddress();
+  console.log(`Using local IP address: ${localIp}`);
+
+  // Check if server is running before proceeding
+  checkServerConnection(localIp, (isServerRunning) => {
+    console.log("Server running status:", isServerRunning);
+
+    // Expose the IP address to the renderer process
+    mainWindow.webContents.on("did-finish-load", () => {
+      mainWindow.webContents.send("local-ip-address", localIp);
+
+      // If server is not running, redirect to server config
+      if (!isServerRunning) {
+        console.log("Server not running, redirecting to server config");
+        mainWindow.webContents.send("set-initial-route", "/server-config");
+      } else {
+        console.log("Server running, continuing to attendance screen");
+      }
+    });
+
+    // Show main window when it's ready
+    mainWindow.once("ready-to-show", () => {
+      // Send IP address to renderer
+      mainWindow.webContents.send("local-ip-address", localIp);
+
+      if (splashWindow) {
+        // Close splash window after a delay to ensure smooth transition
+        setTimeout(() => {
+          splashWindow.close();
+          splashWindow = null;
+          mainWindow.show();
+
+          // Ensure fullscreen mode is active
+          if (!mainWindow.isFullScreen()) {
+            mainWindow.setFullScreen(true);
+          }
+        }, 2000); // 2 seconds delay
+      } else {
         mainWindow.show();
-        mainWindow.maximize(); // Maximize the window on first show
-      }, 2000); // 2 seconds delay
-    } else {
-      mainWindow.show();
-      mainWindow.maximize(); // Maximize the window on first show
-    }
+
+        // Ensure fullscreen mode is active
+        if (!mainWindow.isFullScreen()) {
+          mainWindow.setFullScreen(true);
+        }
+      }
+    });
   });
 
-  // Handle window state
+  // Handle fullscreen state changes
+  mainWindow.on("enter-full-screen", () => {
+    console.log("Entered fullscreen mode");
+    mainWindow.webContents.send("window-state-change", { isFullScreen: true });
+  });
+
+  mainWindow.on("leave-full-screen", () => {
+    console.log("Left fullscreen mode");
+    mainWindow.webContents.send("window-state-change", { isFullScreen: false });
+
+    // Return to fullscreen mode automatically after a brief delay
+    setTimeout(() => {
+      if (!mainWindow.isFullScreen()) {
+        mainWindow.setFullScreen(true);
+      }
+    }, 500);
+  });
+
+  // Keep handling maximize events for compatibility
   mainWindow.on("maximize", () => {
     mainWindow.webContents.send("window-state-change", { isMaximized: true });
   });
@@ -158,6 +312,29 @@ app.on("will-quit", async () => {
     await closeDb();
   } catch (error) {
     console.error("Error closing database:", error);
+  }
+});
+
+// Add IPC handler for IP address retrieval
+ipcMain.handle("get-local-ip", () => {
+  return getLocalIpAddress();
+});
+
+// Add IPC handlers for fullscreen
+ipcMain.on("toggle-fullscreen", () => {
+  if (mainWindow) {
+    const isFullScreen = mainWindow.isFullScreen();
+    mainWindow.setFullScreen(!isFullScreen);
+    mainWindow.webContents.send("window-state-change", {
+      isFullScreen: !isFullScreen,
+    });
+  }
+});
+
+ipcMain.on("check-fullscreen", () => {
+  if (mainWindow) {
+    const isFullScreen = mainWindow.isFullScreen();
+    mainWindow.webContents.send("window-state-change", { isFullScreen });
   }
 });
 

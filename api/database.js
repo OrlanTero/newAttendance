@@ -248,6 +248,26 @@ function initDatabase() {
         );
       }
     );
+
+    // Create Events table
+    try {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS events (
+          event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          description TEXT,
+          start_date TEXT NOT NULL,
+          end_date TEXT,
+          location TEXT,
+          type TEXT DEFAULT 'general',
+          created_at TEXT,
+          updated_at TEXT
+        )
+      `);
+      console.log("Events table created or already exists");
+    } catch (err) {
+      console.error("Error creating events table:", err.message);
+    }
   });
 }
 

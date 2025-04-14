@@ -26,6 +26,7 @@ import {
   Business as BusinessIcon,
   Event as EventIcon,
   Fingerprint as FingerprintIcon,
+  Celebration as CelebrationIcon,
 } from "@mui/icons-material";
 import logo from "../assets/logo.png";
 
@@ -39,38 +40,63 @@ const Navbar = ({ user, onLogout }) => {
       path: "/main",
       name: "Dashboard",
       icon: <Dashboard />,
+      roles: ["admin", "captain", "secretary"],
     },
     {
       path: "/employees",
       name: "Employees",
       icon: <PeopleIcon />,
+      roles: ["admin"],
     },
     {
       path: "/departments",
       name: "Departments",
       icon: <BusinessIcon />,
+      roles: ["admin"],
     },
     {
       path: "/holidays",
       name: "Holidays",
+      icon: <CelebrationIcon />,
+      roles: ["admin"],
+    },
+    {
+      path: "/events",
+      name: "Events",
       icon: <EventIcon />,
+      roles: ["admin", "captain", "secretary"],
     },
     {
       path: "/attendance",
       name: "Attendance",
       icon: <EventNote />,
+      roles: ["admin", "captain"],
     },
     {
       path: "/reports",
       name: "Reports",
       icon: <Assessment />,
+      roles: ["admin", "captain", "secretary"],
     },
     {
       path: "/settings",
       name: "Settings",
       icon: <Settings />,
+      roles: ["admin"],
     },
   ];
+
+  const getFilteredMenuItems = () => {
+    if (!user || !user.role) {
+      return menuItems.filter((item) => item.path === "/main");
+    }
+
+    if (user.role === "admin") {
+      return menuItems;
+    }
+
+    return menuItems.filter((item) => item.roles.includes(user.role));
+  };
 
   const handleMenuOpen = (event) => {
     setAnchorEl(event.currentTarget);
@@ -107,7 +133,7 @@ const Navbar = ({ user, onLogout }) => {
         </Box>
 
         <Box sx={{ display: "flex", gap: 1 }}>
-          {menuItems.map((item) => (
+          {getFilteredMenuItems().map((item) => (
             <Button
               key={item.path}
               component={Link}
@@ -185,7 +211,9 @@ const Navbar = ({ user, onLogout }) => {
                   {user?.display_name || user?.username}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Administrator
+                  {user?.role
+                    ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
+                    : "User"}
                 </Typography>
               </Box>
             </Box>
