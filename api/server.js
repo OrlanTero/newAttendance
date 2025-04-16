@@ -8,6 +8,7 @@ const os = require("os");
 
 const Employee = require("./models/employee");
 const backup = require("./utils/backup");
+const database = require("./database");
 
 // Get IP address from environment or detect it automatically
 const getLocalIpAddress = () => {
@@ -35,14 +36,44 @@ const getLocalIpAddress = () => {
 const IP_ADDRESS = getLocalIpAddress();
 console.log(`Server using IP address: ${IP_ADDRESS}`);
 
-// Initialize Express app
+// // Initialize Express app
+// const app = express();
+// const server = http.createServer(app);
+
+// // Middleware
+// app.use(cors());
+// app.use(bodyParser.json({ limit: "50mb" }));
+// app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
+
+// Initialize express app
 const app = express();
-const server = http.createServer(app);
+const socketApp = express();
+const server = http.createServer(socketApp);
+const socketAppClient = express();
+const serverClient = http.createServer(socketAppClient);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+  },
+});
+
+const ioClient = new Server(serverClient, {
+  cors: {
+    origin: "*",
+  },
+});
+
+const PORT = process.env.PORT || 3000;
+const SOCKET_PORT = process.env.SOCKET_PORT || 3005;
+const SOCKET_PORT_CLIENT = 3006;
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json({ limit: "50mb" }));
-app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Static files (for uploads)
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Import routes
 const userRoutes = require("./routes/users");
@@ -70,27 +101,99 @@ app.use("/api/work-schedule", workScheduleRoutes);
 app.use("/api/backup", backupRoutes);
 app.use("/api/events", eventRoutes);
 
-// Initialize Socket.IO
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
-});
+// Serve static files from the uploads directory
+app.use("/api/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Socket.IO connection handler
-io.on("connection", (socket) => {
-  console.log("Client connected:", socket.id);
+// Handle Socket.IO Connections
+[io, ioClient].forEach((io) => {
+  io.on("connection", (socket) => {
+    console.log("Fingerprint Scanner connected:", socket.id);
 
-  socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+    socket.on("disconnect", () => {
+      console.log("Client disconnected");
+    });
+
+    socket.on("BIOMETRIC_CONNECTED", (data) => {
+      socket.broadcast.emit("BIOMETRIC_CONNECTED", {
+        message: data,
+        initiatorId: socket.id,
+      });
+
+      socket.on("disconnect", (data) => {
+        socket.broadcast.emit("BIOMETRIC_DISCONNECTED", {
+          message: data,
+          initiatorId: socket.id,
+        });
+      });
+    });
+
+    socket.on("FINGERPRINT_CAPTURE", (data) => {
+      socket.broadcast.emit("FINGERPRINT_CAPTURE", {
+        message: data,
+        initiatorId: socket.id,
+      });
+    });
+
+    socket.on("VERIFY", (data) => {
+      Employee.getAll().then((employees) => {
+        socket.broadcast.emit("VERIFY_TEMPLATE", {
+          templates: { data: employees, success: true },
+          fingerprint: data,
+        });
+      });
+    });
+
+    socket.on("VERIFY_RESULT", (data) => {
+      socket.broadcast.emit("VERIFY_RESULT", {
+        result: data,
+        initiatorId: socket.id,
+      });
+    });
+
+    socket.on("START", () => {
+      // Broadcast to all sockets except the sender
+      socket.broadcast.emit("START", {
+        message: "Scanner started by another client",
+        initiatorId: socket.id,
+      });
+    });
   });
 });
 
-// Start the server
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, IP_ADDRESS, () => {
-  console.log(`Server running at http://${IP_ADDRESS}:${PORT}/`);
-});
+// Start server
+if (require.main === module) {
+  // Initialize the database before starting the server
+  database
+    .initDatabase()
+    .then(() => {
+      // Make sure Admin has admin role
+      return database.forceUpdateAdminRole();
+    })
+    .then(() => {
+      // Update user table schema with any missing columns
+      return database.updateUserTableSchema();
+    })
+    .then(() => {
+      console.log("Database initialized successfully");
 
-module.exports = { app, server };
+      // Start the server
+      app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+      });
+
+      server.listen(SOCKET_PORT, () => {
+        console.log(`Socket server running on port ${SOCKET_PORT}`);
+      });
+
+      serverClient.listen(SOCKET_PORT_CLIENT, () => {
+        console.log(
+          `Socket server client running on port ${SOCKET_PORT_CLIENT}`
+        );
+      });
+    })
+    .catch((err) => {
+      console.error("Database initialization failed:", err);
+    });
+}
+
+module.exports = { app, server, serverClient, io, ioClient };

@@ -16,6 +16,7 @@ import ChangePasswordPage from "../pages/ChangePasswordPage";
 import BackupPage from "../pages/BackupPage";
 import SettingsPage from "../pages/SettingsPage";
 import EventsPage from "../pages/EventsPage";
+import UserManagementPage from "../pages/UserManagementPage";
 
 // Create a custom theme
 const theme = createTheme({
@@ -123,8 +124,24 @@ const App = () => {
 
   // Function to handle successful authentication
   const handleAuthSuccess = (user) => {
+    // Ensure user has a valid user_id
+    if (!user.user_id && user.username) {
+      console.warn(
+        "User from authentication is missing user_id, adding a placeholder:",
+        user
+      );
+      // If user_id is missing but we have a username, add a placeholder user_id
+      // This should be replaced with the actual user_id when API data is fetched
+      user = {
+        ...user,
+        user_id: user.id || 1, // Default to 1 for Admin, should be replaced later
+      };
+    }
+
+    console.log("Setting authenticated user:", user);
     setIsAuthenticated(true);
     setCurrentUser(user);
+
     // Save to session storage
     sessionStorage.setItem("isAuthenticated", "true");
     sessionStorage.setItem("currentUser", JSON.stringify(user));
@@ -304,11 +321,7 @@ const App = () => {
           element={
             <ProtectedRoute
               element={
-                <ProfilePage
-                  user={currentUser}
-                  onLogout={handleLogout}
-                  onProfileUpdate={handleProfileUpdate}
-                />
+                <ProfilePage user={currentUser} onLogout={handleLogout} />
               }
             />
           }
@@ -344,7 +357,21 @@ const App = () => {
               element={
                 <SettingsPage user={currentUser} onLogout={handleLogout} />
               }
-              allowedRoles={["admin"]}
+              allowedRoles={["admin", "captain"]}
+            />
+          }
+        />
+        <Route
+          path="/user-management"
+          element={
+            <ProtectedRoute
+              element={
+                <UserManagementPage
+                  user={currentUser}
+                  onLogout={handleLogout}
+                />
+              }
+              allowedRoles={["admin", "captain"]}
             />
           }
         />

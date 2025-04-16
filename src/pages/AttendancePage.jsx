@@ -51,6 +51,7 @@ import {
   AddCircle as AddCircleIcon,
   Check as CheckIcon,
   Warning as WarningIcon,
+  HourglassBottom as HourglassBottomIcon,
 } from "@mui/icons-material";
 import {
   format,
@@ -92,11 +93,11 @@ const AttendancePage = ({ user, onLogout }) => {
   const [currentTab, setCurrentTab] = useState(0);
 
   const statuses = [
-    { value: "", label: "All Status Issues" },
+    { value: "", label: "All" },
+    { value: "present", label: "Present" },
     { value: "late", label: "Late" },
     { value: "absent", label: "Absent" },
     { value: "undertime", label: "Undertime" },
-    { value: "present", label: "Present" },
   ];
 
   const statusOptions = [
@@ -360,15 +361,15 @@ const AttendancePage = ({ user, onLogout }) => {
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
       case "present":
-        return "#4caf50";
+        return "#4caf50"; // Green
       case "late":
-        return "#ff9800";
+        return "#ff9800"; // Orange
       case "absent":
-        return "#f44336";
+        return "#f44336"; // Red
       case "undertime":
-        return "#9c27b0";
+        return "#9c27b0"; // Purple
       default:
-        return "#9e9e9e";
+        return "#9e9e9e"; // Grey
     }
   };
 
@@ -381,7 +382,7 @@ const AttendancePage = ({ user, onLogout }) => {
       case "absent":
         return <EventBusyIcon fontSize="small" />;
       case "undertime":
-        return <AccessTimeIcon fontSize="small" />;
+        return <HourglassBottomIcon fontSize="small" />;
       default:
         return null;
     }
@@ -576,7 +577,7 @@ const AttendancePage = ({ user, onLogout }) => {
             </Box>
           ) : (
             <>
-              <TableContainer sx={{ maxHeight: 600 }}>
+              <TableContainer sx={{ maxHeight: "60vh", overflowY: "auto" }}>
                 <Table stickyHeader>
                   <TableHead>
                     <TableRow>

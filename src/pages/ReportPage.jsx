@@ -326,15 +326,15 @@ const ReportPage = ({ user, onLogout }) => {
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
       case "present":
-        return "#4caf50";
+        return "#4caf50"; // Green
       case "late":
-        return "#ff9800";
+        return "#ff9800"; // Orange
       case "absent":
-        return "#f44336";
+        return "#f44336"; // Red
       case "undertime":
-        return "#9c27b0";
+        return "#9c27b0"; // Purple
       default:
-        return "#9e9e9e";
+        return "#9e9e9e"; // Grey
     }
   };
 

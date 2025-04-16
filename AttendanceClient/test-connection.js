@@ -23,7 +23,7 @@ function getLocalIpAddress() {
 // IP address to test
 const ipAddress = process.argv[2] || getLocalIpAddress();
 const port = 3000;
-const path = "/api/auth/test";
+const path = "/api/test";
 
 console.log(`Testing connection to http://${ipAddress}:${port}${path}`);
 

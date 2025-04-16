@@ -16,11 +16,13 @@ import StorageIcon from "@mui/icons-material/Storage";
 import SecurityIcon from "@mui/icons-material/Security";
 import DnsIcon from "@mui/icons-material/Dns";
 import logo from "../assets/logo.png";
+import * as api from "../utils/api";
 
 const SplashScreen = () => {
   const navigate = useNavigate();
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [fadeIn, setFadeIn] = useState(true);
+  const [apiConnected, setApiConnected] = useState(false);
   const [serverStatus, setServerStatus] = useState([
     {
       name: "Database",
@@ -43,6 +45,90 @@ const SplashScreen = () => {
     { name: "Network", icon: <DnsIcon />, status: "waiting", color: "default" },
   ]);
 
+  // Check API connectivity first
+  useEffect(() => {
+    let retryCount = 0;
+    const maxRetries = 2; // Maximum number of automatic retries
+
+    const checkApiConnection = async () => {
+      try {
+        console.log(
+          `SplashScreen: Testing API connection (attempt ${retryCount + 1})`
+        );
+        const result = await api.testConnection();
+        console.log("SplashScreen: API connection result:", result);
+        setApiConnected(result.success);
+
+        // Update API Services status based on connection result
+        setServerStatus((prev) =>
+          prev.map((item, index) =>
+            index === 1
+              ? {
+                  ...item,
+                  status: result.success ? "ready" : "not available",
+                  color: result.success ? "success" : "error",
+                }
+              : item
+          )
+        );
+
+        // If connection failed, try a couple more times then continue anyway
+        if (!result.success && retryCount < maxRetries) {
+          console.log(
+            `SplashScreen: API connection failed, will retry (${
+              retryCount + 1
+            }/${maxRetries})`
+          );
+          retryCount++;
+          // Retry after a short delay
+          setTimeout(checkApiConnection, 2000);
+        } else if (!result.success) {
+          console.log(
+            "SplashScreen: Maximum retry attempts reached, continuing without API"
+          );
+          // Continue loading process even without API
+        }
+      } catch (error) {
+        console.error("SplashScreen: API connection error:", error);
+        setApiConnected(false);
+
+        // Update API Services status to indicate error
+        setServerStatus((prev) =>
+          prev.map((item, index) =>
+            index === 1
+              ? { ...item, status: "unavailable", color: "error" }
+              : item
+          )
+        );
+
+        // Retry a couple times then continue anyway
+        if (retryCount < maxRetries) {
+          console.log(
+            `SplashScreen: API connection error, will retry (${
+              retryCount + 1
+            }/${maxRetries})`
+          );
+          retryCount++;
+          setTimeout(checkApiConnection, 2000);
+        } else {
+          console.log(
+            "SplashScreen: Maximum retry attempts reached, continuing without API"
+          );
+          // Continue loading process even without API
+        }
+      }
+    };
+
+    // Start checking API connection when splash screen loads - only once
+    checkApiConnection();
+
+    // No interval - we'll just try a few times then proceed
+
+    return () => {
+      // No cleanup needed
+    };
+  }, []);
+
   // Update server status indicators as loading progresses
   useEffect(() => {
     const updateServerStatus = () => {
@@ -56,13 +142,7 @@ const SplashScreen = () => {
         );
       }
 
-      if (loadingProgress > 50) {
-        setServerStatus((prev) =>
-          prev.map((item, index) =>
-            index === 1 ? { ...item, status: "ready", color: "success" } : item
-          )
-        );
-      }
+      // Skip updating API Services status here since it's handled by API connection check
 
       if (loadingProgress > 75) {
         setServerStatus((prev) =>
@@ -86,30 +166,60 @@ const SplashScreen = () => {
     updateServerStatus();
   }, [loadingProgress]);
 
-  // Handle navigation after loading
+  // Handle navigation after loading - wait for API connection with timeout
   useEffect(() => {
-    const loadingTimer = setInterval(() => {
-      setLoadingProgress((oldProgress) => {
-        const newProgress = Math.min(oldProgress + 4, 100);
-        if (newProgress === 100) {
-          // Begin fade out when loading is complete
-          setTimeout(() => {
-            setFadeIn(false);
-            // Navigate after fade out animation
-            setTimeout(() => {
-              navigate("/login");
-            }, 500);
-          }, 800);
-          clearInterval(loadingTimer);
-        }
-        return newProgress;
-      });
-    }, 80); // Adjust this value to make loading faster or slower
+    let loadingTimer;
+    let timeoutTimer;
+
+    // Function to complete loading and navigate
+    const finishLoadingAndNavigate = () => {
+      // Set to 100% immediately
+      setLoadingProgress(100);
+      // Begin fade out
+      setTimeout(() => {
+        setFadeIn(false);
+        // Navigate after fade out animation
+        setTimeout(() => {
+          navigate("/login");
+        }, 500);
+      }, 800);
+    };
+
+    if (apiConnected) {
+      // If API is connected, start the regular loading progression
+      loadingTimer = setInterval(() => {
+        setLoadingProgress((oldProgress) => {
+          const newProgress = Math.min(oldProgress + 4, 100);
+          if (newProgress === 100) {
+            clearInterval(loadingTimer);
+            finishLoadingAndNavigate();
+          }
+          return newProgress;
+        });
+      }, 80); // Adjust this value to make loading faster or slower
+    } else {
+      // If API not connected, progress slowly but set a timeout to complete anyway
+      loadingTimer = setInterval(() => {
+        setLoadingProgress((oldProgress) => {
+          // Progress up to 85% max while waiting for API connection
+          const newProgress = Math.min(oldProgress + 1, 85);
+          return newProgress;
+        });
+      }, 100);
+
+      // Set a timeout to finish loading after 10 seconds even if API is not connected
+      timeoutTimer = setTimeout(() => {
+        console.log("Loading timeout reached, proceeding to login without API");
+        clearInterval(loadingTimer);
+        finishLoadingAndNavigate();
+      }, 10000); // 10 seconds max wait
+    }
 
     return () => {
       clearInterval(loadingTimer);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
     };
-  }, [navigate]);
+  }, [navigate, apiConnected]);
 
   const appVersion = "1.0.0"; // You can pull this from package.json if needed
 

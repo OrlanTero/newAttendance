@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, screen } = require("electron");
 const path = require("node:path");
-// const isDev = process.env.NODE_ENV === "development";
-const isDev = false;
+const isDev = process.env.NODE_ENV === "development";
+// const isDev = false;
 const { exec, spawn } = require("child_process");
 const os = require("os");
 const fs = require("fs");
@@ -151,12 +151,8 @@ const createMainWindow = () => {
       fingerprintServerPath = path.join(
         __dirname,
         "..",
-        "FingerprintAPI",
-        "FingerPrintA",
-        "bin",
-        "Debug",
-        "net8.0-windows",
-        "FingerPrintA.exe"
+        "BiometricAPI",
+        "FingerPrintAPI.exe"
       );
     } else {
       // Try multiple approaches to find the API server
@@ -173,12 +169,8 @@ const createMainWindow = () => {
 
       fingerprintServerPath = path.join(
         extraResourcesPath,
-        "FingerprintAPI",
-        "FingerPrintA",
-        "bin",
-        "Debug",
-        "net8.0-windows",
-        "FingerPrintA.exe"
+        "BiometricAPI",
+        "FingerPrintAPI.exe"
       );
 
       console.log("Checking for API in resources:", apiInResourcesPath);
@@ -212,12 +204,8 @@ const createMainWindow = () => {
 
           const fingerprintServerFallbackPath = path.join(
             basePath,
-            "FingerprintAPI",
-            "FingerPrintA",
-            "bin",
-            "Debug",
-            "net8.0-windows",
-            "FingerPrintA.exe"
+            "BiometricAPI",
+            "FingerPrintAPI.exe"
           );
 
           fingerprintServerPath = fingerprintServerFallbackPath;

@@ -520,7 +520,7 @@ const EmployeesPage = ({ user, onLogout }) => {
               </Typography>
             </Box>
           ) : (
-            <TableContainer>
+            <TableContainer sx={{ maxHeight: "60vh", overflowY: "auto" }}>
               <Table>
                 <TableHead>
                   <TableRow>

@@ -49,134 +49,246 @@ function initDatabase() {
             return;
           }
 
-          // Create events table
-          db.run(
-            `
-            CREATE TABLE IF NOT EXISTS events (
-              event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-              title TEXT NOT NULL,
-              description TEXT,
-              location TEXT,
-              start_date TIMESTAMP NOT NULL,
-              end_date TIMESTAMP,
-              created_by INTEGER,
-              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (created_by) REFERENCES users(user_id)
-            )
-          `,
-            (err) => {
-              if (err) {
-                console.error("Error creating events table:", err.message);
-                reject(err);
-                return;
-              }
+          // Check if 'role' column exists in users table, add it if it doesn't
+          db.all("PRAGMA table_info(users)", [], (err, rows) => {
+            if (err) {
+              console.error("Error getting table info:", err.message);
+              // Even if we can't check, continue with initialization
+              console.log("Continuing initialization despite PRAGMA error");
+              continueInitialization();
+              return;
+            }
 
-              // Check if admin user exists, if not create default admin
-              db.get(
-                "SELECT * FROM users WHERE username = ?",
-                ["Admin"],
-                (err, row) => {
+            // Check if the query returned any column info
+            let hasRoleColumn = false;
+            if (Array.isArray(rows)) {
+              // If it returned an array, check if any column is named 'role'
+              hasRoleColumn = rows.some((row) => row.name === "role");
+              console.log("Found column info (array):", rows.length, "columns");
+              console.log("Has role column:", hasRoleColumn);
+            } else if (rows && typeof rows === "object") {
+              // If it returned a single object, check if it has a 'name' property equal to 'role'
+              hasRoleColumn = rows.name === "role";
+              console.log("Found column info (object)");
+              console.log("Has role column:", hasRoleColumn);
+            } else {
+              console.log("Unexpected result from PRAGMA query:", rows);
+              // Safer to assume role column doesn't exist and try to add it
+              hasRoleColumn = false;
+            }
+
+            // If no role column, add it
+            if (!hasRoleColumn) {
+              console.log("Adding 'role' column to users table");
+              db.run(
+                "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+                (err) => {
                   if (err) {
-                    console.error(
-                      "Error checking for admin user:",
-                      err.message
-                    );
-                    reject(err);
-                    return;
+                    console.error("Error adding role column:", err.message);
+                    // Continue even if this fails, as it might be that the column already exists
+                    console.log("Continuing despite error adding role column");
+                  } else {
+                    console.log("Added 'role' column to users table");
                   }
 
-                  if (!row) {
-                    db.run(
-                      `
-                  INSERT INTO users (username, password, display_name, role)
-                  VALUES (?, ?, ?, ?)
-                `,
-                      ["Admin", "Admin", "Administrator", "admin"],
-                      function (err) {
-                        if (err) {
-                          console.error(
-                            "Error creating admin user:",
-                            err.message
-                          );
-                          reject(err);
-                          return;
-                        }
-                        console.log("Default Admin user created");
+                  // Continue with the rest of the initialization
+                  continueInitialization();
+                }
+              );
+            } else {
+              // Role column exists, continue initialization
+              continueInitialization();
+            }
+          });
 
-                        // Create default Captain user
-                        db.run(
-                          `
+          // Function to continue with the rest of the initialization
+          function continueInitialization() {
+            // Create events table
+            db.run(
+              `
+              CREATE TABLE IF NOT EXISTS events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                location TEXT,
+                start_date TIMESTAMP NOT NULL,
+                end_date TIMESTAMP,
+                created_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users(user_id)
+              )
+            `,
+              (err) => {
+                if (err) {
+                  console.error("Error creating events table:", err.message);
+                  reject(err);
+                  return;
+                }
+
+                // Check if admin user exists, if not create default admin
+                db.get(
+                  "SELECT * FROM users WHERE username = ?",
+                  ["Admin"],
+                  (err, row) => {
+                    if (err) {
+                      console.error(
+                        "Error checking for admin user:",
+                        err.message
+                      );
+                      reject(err);
+                      return;
+                    }
+
+                    if (!row) {
+                      db.run(
+                        `
                     INSERT INTO users (username, password, display_name, role)
                     VALUES (?, ?, ?, ?)
                   `,
-                          ["Captain", "Captain", "Captain", "captain"],
-                          function (err) {
-                            if (err) {
-                              console.error(
-                                "Error creating captain user:",
-                                err.message
-                              );
-                              reject(err);
-                              return;
-                            }
-                            console.log("Default Captain user created");
-
-                            // Create default Secretary user
-                            db.run(
-                              `
-                        INSERT INTO users (username, password, display_name, role)
-                        VALUES (?, ?, ?, ?)
-                      `,
-                              [
-                                "Secretary",
-                                "Secretary",
-                                "Secretary",
-                                "secretary",
-                              ],
-                              function (err) {
-                                if (err) {
-                                  console.error(
-                                    "Error creating secretary user:",
-                                    err.message
-                                  );
-                                  reject(err);
-                                  return;
-                                }
-                                console.log("Default Secretary user created");
-                                resolve(true);
-                              }
-                            );
-                          }
-                        );
-                      }
-                    );
-                  } else {
-                    // Check if existing Admin has role field, update if not
-                    if (!row.role) {
-                      db.run(
-                        "UPDATE users SET role = 'admin' WHERE username = 'Admin'",
+                        ["Admin", "Admin", "Administrator", "admin"],
                         function (err) {
                           if (err) {
                             console.error(
-                              "Error updating admin role:",
+                              "Error creating admin user:",
                               err.message
                             );
                             reject(err);
                             return;
                           }
-                          console.log("Updated Admin user with role");
-                          resolve(true);
+                          console.log("Default Admin user created");
+
+                          // Create default Captain user
+                          db.run(
+                            `
+                      INSERT INTO users (username, password, display_name, role)
+                      VALUES (?, ?, ?, ?)
+                    `,
+                            ["Captain", "Captain", "Captain", "captain"],
+                            function (err) {
+                              if (err) {
+                                console.error(
+                                  "Error creating captain user:",
+                                  err.message
+                                );
+                                reject(err);
+                                return;
+                              }
+                              console.log("Default Captain user created");
+
+                              // Create default Secretary user
+                              db.run(
+                                `
+                          INSERT INTO users (username, password, display_name, role)
+                          VALUES (?, ?, ?, ?)
+                        `,
+                                [
+                                  "Secretary",
+                                  "Secretary",
+                                  "Secretary",
+                                  "secretary",
+                                ],
+                                function (err) {
+                                  if (err) {
+                                    console.error(
+                                      "Error creating secretary user:",
+                                      err.message
+                                    );
+                                    reject(err);
+                                    return;
+                                  }
+                                  console.log("Default Secretary user created");
+                                  resolve(true);
+                                }
+                              );
+                            }
+                          );
                         }
                       );
                     } else {
-                      resolve(true);
+                      // Check if existing Admin has role field, update if not
+                      if (!row.role) {
+                        // First check if role column exists to avoid error
+                        db.all(
+                          "PRAGMA table_info(users)",
+                          [],
+                          (err, columnInfo) => {
+                            if (err) {
+                              console.error(
+                                "Error getting column info:",
+                                err.message
+                              );
+                              // Don't reject, just log and continue
+                              console.log(
+                                "Skipping role update due to PRAGMA error"
+                              );
+                              resolve(true);
+                              return;
+                            }
+
+                            // If role column exists now, update the admin user
+                            let hasRoleColumn = false;
+                            if (Array.isArray(columnInfo)) {
+                              hasRoleColumn = columnInfo.some(
+                                (col) => col.name === "role"
+                              );
+                              console.log(
+                                "Column check result (array):",
+                                columnInfo.length,
+                                "columns"
+                              );
+                            } else if (
+                              columnInfo &&
+                              typeof columnInfo === "object"
+                            ) {
+                              hasRoleColumn = columnInfo.name === "role";
+                              console.log("Column check result (object)");
+                            } else {
+                              console.log(
+                                "Unexpected PRAGMA result format:",
+                                columnInfo
+                              );
+                              hasRoleColumn = false;
+                            }
+
+                            console.log(
+                              "Has role column (for update):",
+                              hasRoleColumn
+                            );
+
+                            if (hasRoleColumn) {
+                              db.run(
+                                "UPDATE users SET role = 'admin' WHERE username = 'Admin'",
+                                function (err) {
+                                  if (err) {
+                                    console.error(
+                                      "Error updating admin role:",
+                                      err.message
+                                    );
+                                    reject(err);
+                                    return;
+                                  }
+                                  console.log("Updated Admin user with role");
+                                  resolve(true);
+                                }
+                              );
+                            } else {
+                              console.log(
+                                "Role column still not available, skipping update"
+                              );
+                              resolve(true);
+                            }
+                          }
+                        );
+                      } else {
+                        resolve(true);
+                      }
                     }
                   }
-                }
-              );
-            }
-          );
+                );
+              }
+            );
+          }
         }
       );
 

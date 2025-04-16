@@ -16,7 +16,7 @@ Imports System.Reflection
 <Assembly: System.Reflection.AssemblyCompanyAttribute("FingerPrintA"),  _
  Assembly: System.Reflection.AssemblyConfigurationAttribute("Debug"),  _
  Assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0"),  _
- Assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+13ea4aaefab9082f0dedc09626018ec81f388932"),  _
+ Assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cada602b0d10adbe5383cbf5e43fb5d0667fc399"),  _
  Assembly: System.Reflection.AssemblyProductAttribute("FingerPrintA"),  _
  Assembly: System.Reflection.AssemblyTitleAttribute("FingerPrintA"),  _
  Assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0"),  _

@@ -22,9 +22,112 @@ import ErrorIcon from "@mui/icons-material/Error";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
 import CelebrationIcon from "@mui/icons-material/Celebration";
+import SignalWifiOffIcon from "@mui/icons-material/SignalWifiOff";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import QuestionMarkIcon from "@mui/icons-material/QuestionMark";
 import { io } from "socket.io-client";
 import * as api from "../utils/api";
 import { useNavigate } from "react-router-dom";
+
+// Standby Screen Component
+const StandbyScreen = ({ currentTime, onRetryConnection }) => {
+  return (
+    <Box
+      sx={{
+        height: "100vh",
+        width: "100vw",
+        display: "flex",
+        flexDirection: "column",
+        p: { xs: 2, sm: 3 },
+        overflow: "hidden",
+        backgroundColor: "#f5f7fa",
+      }}
+    >
+      {/* Header */}
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 3,
+          py: 1,
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          <img src={logo} alt="Logo" style={{ height: 50, marginRight: 16 }} />
+          <Typography variant="h4" sx={{ fontWeight: 600 }}>
+            Attendance System
+          </Typography>
+        </Box>
+        <Typography variant="h4" sx={{ fontWeight: 500 }}>
+          {currentTime.toLocaleTimeString()}
+        </Typography>
+      </Box>
+
+      {/* Main Content */}
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <Paper
+          elevation={3}
+          sx={{
+            p: { xs: 4, sm: 5 },
+            borderRadius: 2,
+            maxWidth: 600,
+            width: "100%",
+            textAlign: "center",
+          }}
+        >
+          <SignalWifiOffIcon
+            sx={{ fontSize: 100, color: "error.main", mb: 3 }}
+          />
+
+          <Typography variant="h4" gutterBottom>
+            Fingerprint Service Unavailable
+          </Typography>
+
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+            The fingerprint service is not responding. This could be due to a
+            connection issue or because the fingerprint reader is not properly
+            connected.
+          </Typography>
+
+          <Alert severity="info" sx={{ mb: 4, textAlign: "left" }}>
+            <Typography variant="body2">
+              Please ensure:
+              <ul>
+                <li>
+                  The fingerprint reader is properly connected to the system
+                </li>
+                <li>The BiometricAPI service is running</li>
+                <li>
+                  Network connection is stable (if using a networked fingerprint
+                  reader)
+                </li>
+              </ul>
+            </Typography>
+          </Alert>
+
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            startIcon={<RestartAltIcon />}
+            onClick={onRetryConnection}
+            sx={{ minWidth: 200 }}
+          >
+            Retry Connection
+          </Button>
+        </Paper>
+      </Box>
+    </Box>
+  );
+};
 
 const AttendanceScreen = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -41,12 +144,18 @@ const AttendanceScreen = () => {
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [lastRefreshed, setLastRefreshed] = useState(null);
   const [nonWorkingDayReason, setNonWorkingDayReason] = useState(null); // holiday, rest-day
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [socketErrorCount, setSocketErrorCount] = useState(0);
+  const [biometricServiceAvailable, setBiometricServiceAvailable] =
+    useState(true); // Flag for service availability
+  const [connectionAttempts, setConnectionAttempts] = useState(0); // Track connection attempts
   const navigate = useNavigate();
 
   // Constants for time calculations
   const SHIFT_START_HOUR = 8; // 8 AM
   const SHIFT_END_HOUR = 18; // 6 PM
   const GRACE_PERIOD_MINUTES = 15; // 15 min grace period
+  const CONNECTION_TIMEOUT = 5000; // 5 seconds timeout
 
   // Initialize socket connection
   useEffect(() => {
@@ -75,35 +184,199 @@ const AttendanceScreen = () => {
       const isServerConnected = await checkServerConnection();
       if (!isServerConnected) return;
 
+      // Reset error count when we try to connect
+      setSocketErrorCount(0);
+
+      // Implement exponential backoff for reconnection attempts
+      // Only increment connectionAttempts if the last attempt was more than 5 seconds ago
+      const now = Date.now();
+      const lastAttemptTime = window.lastConnectionAttemptTime || 0;
+      if (now - lastAttemptTime < 5000 && connectionAttempts > 0) {
+        console.log("Throttling connection attempts - waiting to retry");
+        setTimeout(() => {
+          setConnectionAttempts((prev) => prev + 1);
+        }, 5000);
+        return;
+      }
+
+      window.lastConnectionAttemptTime = now;
+      setConnectionAttempts((prev) => prev + 1);
+
+      let connectionTimeoutId = null;
+      let newSocket = null;
+
       try {
-        // Create socket connection
+        // Create socket connection with options to immediately disable after first failure
         console.log(`Connecting to socket server at ${api.SOCKET_API_URL}`);
-        const newSocket = io(api.SOCKET_API_URL, {
-          reconnectionAttempts: 3, // Try to reconnect only 3 times
-          timeout: 5000, // Connection timeout in ms
-          reconnectionDelay: 1000, // How long to wait before reconnect
+        console.log(`Connection attempt #${connectionAttempts}`);
+
+        // Check if the socket server port is accessible before attempting connection
+        try {
+          // Simple fetch to check if the port is open - will fail for CORS but that's okay
+          // We just want to see if the port is reachable
+          console.log(
+            `Checking if socket server port is accessible at port 3006...`
+          );
+          let portCheck = null;
+
+          try {
+            portCheck = await fetch(`${api.SOCKET_API_URL}/health-check`, {
+              mode: "no-cors",
+              timeout: 2000,
+            });
+          } catch (e) {
+            console.log("Port check failed with error:", e.message);
+            // Continue with portCheck being null
+          }
+
+          if (!portCheck) {
+            console.log(
+              "Socket server port is not accessible, skipping socket connection"
+            );
+            setBiometricServiceAvailable(false);
+
+            // Check if we need to start the BiometricAPI
+            // Use a safer way to check for Electron environment
+            try {
+              // Check if window.electron (from preload) is available instead of using require directly
+              if (window.electron && window.electron.ipcRenderer) {
+                console.log(
+                  "Electron IPC renderer is available, attempting to restart BiometricAPI"
+                );
+                window.electron.ipcRenderer.send("check-biometric-api");
+
+                window.electron.ipcRenderer.once(
+                  "biometric-api-status",
+                  (running) => {
+                    console.log(
+                      "BiometricAPI status:",
+                      running ? "running" : "not running"
+                    );
+                    if (!running) {
+                      console.log("Attempting to start BiometricAPI...");
+                      window.electron.ipcRenderer.send("start-biometric-api");
+                    }
+                  }
+                );
+              } else {
+                console.log(
+                  "Not running in Electron environment or IPC renderer not exposed"
+                );
+              }
+            } catch (error) {
+              console.log("Error accessing Electron IPC:", error);
+            }
+
+            return;
+          }
+          console.log("Socket server port appears to be accessible");
+        } catch (e) {
+          // If we get any error, the port is likely not available
+          console.error("Socket server port check failed:", e);
+          setBiometricServiceAvailable(false);
+          return;
+        }
+
+        newSocket = io(api.SOCKET_API_URL, {
+          reconnectionAttempts: 2, // Increased from 1 to 2
+          timeout: CONNECTION_TIMEOUT,
+          reconnectionDelay: 1000, // Add a small delay between attempts
+          autoConnect: true,
+          reconnection: true, // Enable reconnection but with limited attempts
         });
 
         newSocket.on("connect", () => {
           console.log("Connected to fingerprint server");
           setMessage("Connected to fingerprint server");
           setStatus("connecting");
+          setSocketConnected(true);
+          setSocketErrorCount(0);
+          setBiometricServiceAvailable(true);
+
+          // Clear timeout if we successfully connect
+          if (connectionTimeoutId) {
+            clearTimeout(connectionTimeoutId);
+            connectionTimeoutId = null;
+          }
         });
 
         newSocket.on("connect_error", (error) => {
           console.error("Socket connection error:", error);
           setMessage("Could not connect to fingerprint server");
           setStatus("error");
-          // Redirect to server config after a short delay
-          setTimeout(() => {
-            navigate("/server-config");
-          }, 3000);
+          setSocketConnected(false);
+
+          // Increment the error count
+          setSocketErrorCount((prev) => prev + 1);
+
+          // Only disable reconnection after multiple attempts
+          if (socketErrorCount >= 3) {
+            console.log(
+              "Multiple connection errors - stopping reconnection attempts"
+            );
+            if (newSocket) {
+              newSocket.io.opts.reconnection = false;
+              if (newSocket.connected) {
+                newSocket.disconnect();
+              }
+            }
+
+            // Set the biometric service as unavailable
+            setBiometricServiceAvailable(false);
+          } else {
+            // Log the attempt but keep trying
+            console.log(
+              `Connection error (attempt ${
+                socketErrorCount + 1
+              }) - will retry...`
+            );
+          }
         });
+
+        // If we get disconnected, update the state but allow for reconnection attempts
+        newSocket.on("disconnect", () => {
+          console.log("Disconnected from fingerprint server");
+          setMessage("Disconnected from fingerprint server");
+          setStatus("error");
+          setIsInitialized(false);
+          setSocketConnected(false);
+
+          // Don't immediately set service as unavailable
+          // Allow for reconnection attempts as configured
+          if (socketErrorCount >= 3) {
+            console.log(
+              "Too many connection failures - setting service as unavailable"
+            );
+            setBiometricServiceAvailable(false);
+
+            // Only disable reconnection after multiple attempts
+            if (newSocket) {
+              newSocket.io.opts.reconnection = false;
+            }
+          }
+        });
+
+        // Set a shorter timeout
+        connectionTimeoutId = setTimeout(() => {
+          console.log(
+            "Connection timeout - no response from fingerprint server"
+          );
+          setBiometricServiceAvailable(false);
+
+          if (newSocket) {
+            newSocket.io.opts.reconnection = false;
+            if (newSocket.connected) {
+              newSocket.disconnect();
+            }
+          }
+        }, CONNECTION_TIMEOUT + 1000); // Just slightly longer than the socket timeout
 
         newSocket.on("BIOMETRIC_CONNECTED", (data) => {
           console.log("Biometric connected:", data);
           setMessage("Biometric connected");
           setStatus("ready");
+          setIsInitialized(true);
+          setBiometricServiceAvailable(true);
 
           if (newSocket.connected) {
             newSocket.emit("START");
@@ -114,20 +387,7 @@ const AttendanceScreen = () => {
           console.log("Biometric disconnected:", data);
           setMessage("Biometric disconnected");
           setStatus("error");
-        });
-
-        newSocket.on("disconnect", () => {
-          console.log("Disconnected from fingerprint server");
-          setMessage("Disconnected from fingerprint server");
-          setStatus("error");
           setIsInitialized(false);
-        });
-
-        newSocket.on("CAPTURE", (data) => {
-          console.log("Fingerprint captured:", data);
-          setFingerprintData(data);
-          setMessage("Fingerprint captured successfully");
-          setStatus("capturing");
         });
 
         // Listen for fingerprint capture results
@@ -135,6 +395,13 @@ const AttendanceScreen = () => {
           setFingerprintData(data);
           setMessage("Fingerprint captured successfully");
           setStatus("verifying");
+        });
+
+        newSocket.on("CAPTURE", (data) => {
+          console.log("Fingerprint captured:", data);
+          setFingerprintData(data);
+          setMessage("Fingerprint captured successfully");
+          setStatus("capturing");
         });
 
         newSocket.on("VERIFY_RESULT", (data) => {
@@ -159,32 +426,66 @@ const AttendanceScreen = () => {
         });
 
         setSocket(newSocket);
+
+        // Clean up function to disconnect socket when component unmounts
+        return () => {
+          console.log("Cleaning up socket connection");
+          if (connectionTimeoutId) {
+            clearTimeout(connectionTimeoutId);
+          }
+
+          if (newSocket) {
+            // Explicitly disable reconnection before disconnecting
+            newSocket.io.opts.reconnection = false;
+
+            try {
+              if (newSocket.connected) {
+                newSocket.disconnect();
+              }
+            } catch (e) {
+              console.error("Error during socket cleanup:", e);
+            }
+          }
+        };
       } catch (error) {
         console.error("Error initializing socket:", error);
         setMessage("Failed to connect to server");
         setStatus("error");
-        // Redirect to server config after a short delay
-        setTimeout(() => {
-          navigate("/server-config");
-        }, 3000);
+        setBiometricServiceAvailable(false);
+
+        if (connectionTimeoutId) {
+          clearTimeout(connectionTimeoutId);
+        }
       }
     };
 
-    initializeSocket();
+    // Initialize the socket
+    const cleanup = initializeSocket();
 
-    // Clean up on component unmount
+    // This is the cleanup function that runs when the component unmounts
     return () => {
+      if (typeof cleanup === "function") {
+        cleanup();
+      }
       if (socket) {
-        socket.disconnect();
+        // Ensure reconnection is disabled
+        try {
+          socket.io.opts.reconnection = false;
+          socket.disconnect();
+        } catch (e) {
+          console.error("Error during socket cleanup in return:", e);
+        }
       }
     };
-  }, [navigate]); // Add navigate to dependency array
+  }, [navigate, connectionAttempts]); // Remove MAX_SOCKET_ERRORS from dependencies
 
+  // This effect will run when socket is set and will emit START
   useEffect(() => {
-    if (socket) {
+    if (socket && socket.connected) {
+      console.log("Emitting START event to socket server");
       socket.emit("START");
     }
-  }, [socket]);
+  }, [socket, socketConnected]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -415,6 +716,22 @@ const AttendanceScreen = () => {
     }
   };
 
+  // Handler to retry connecting to the biometric service
+  const handleRetryConnection = () => {
+    console.log("Attempting to reconnect to biometric service...");
+    setBiometricServiceAvailable(true); // Reset to try again
+    setSocketErrorCount(0); // Reset error count
+    setStatus("init"); // Reset status to show connecting animation
+
+    // Reset the last connection attempt time to ensure we can connect immediately
+    window.lastConnectionAttemptTime = 0;
+
+    // Add a small delay before attempting to reconnect
+    setTimeout(() => {
+      setConnectionAttempts((prev) => prev + 1); // Increment to trigger useEffect
+    }, 1000);
+  };
+
   // Helper function to render status icon
   const renderStatusIcon = () => {
     switch (status) {
@@ -550,6 +867,16 @@ const AttendanceScreen = () => {
       </Alert>
     );
   };
+
+  // If the biometric service is not available, show the standby screen
+  if (!biometricServiceAvailable) {
+    return (
+      <StandbyScreen
+        currentTime={currentTime}
+        onRetryConnection={handleRetryConnection}
+      />
+    );
+  }
 
   return (
     <Box

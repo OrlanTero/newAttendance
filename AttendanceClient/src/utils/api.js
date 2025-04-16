@@ -1,9 +1,9 @@
 // API utility for the renderer process
 
 // Initialize with a default IP address that will be updated
-let IPADDRESS = "192.168.1.12"; // Updated to match the actual server IP
+let IPADDRESS = "192.168.1.19"; // Updated to match the actual server IP
 let API_URL = `http://${IPADDRESS}:3000/api`;
-let SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+let SOCKET_API_URL = `http://${IPADDRESS}:3006`;
 
 // Update IP address from localStorage if available
 if (typeof window !== "undefined" && window.localStorage) {
@@ -26,7 +26,7 @@ if (typeof window !== "undefined" && window.ipConfig) {
       if (!localStorage.getItem("serverIpAddress")) {
         IPADDRESS = ip;
         API_URL = `http://${IPADDRESS}:3000/api`;
-        SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+        SOCKET_API_URL = `http://${IPADDRESS}:3006`;
         console.log(`Updated IP address from main process: ${IPADDRESS}`);
       }
     })
@@ -44,7 +44,7 @@ if (typeof window !== "undefined" && window.ipConfig) {
     if (!localStorage.getItem("serverIpAddress")) {
       IPADDRESS = ip;
       API_URL = `http://${IPADDRESS}:3000/api`;
-      SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+      SOCKET_API_URL = `http://${IPADDRESS}:3006`;
       console.log(`IP address updated via IPC: ${IPADDRESS}`);
     }
   });
@@ -54,7 +54,7 @@ if (typeof window !== "undefined" && window.ipConfig) {
 export function updateServerIp(ipAddress) {
   IPADDRESS = ipAddress;
   API_URL = `http://${IPADDRESS}:3000/api`;
-  SOCKET_API_URL = `http://${IPADDRESS}:3005`;
+  SOCKET_API_URL = `http://${IPADDRESS}:3006`;
   console.log(`Manually updated server IP address to: ${IPADDRESS}`);
   return { API_URL, SOCKET_API_URL };
 }

@@ -17,7 +17,7 @@
             Console.WriteLine("No IP address provided. Using default IP: 127.0.0.1")
 
             ' Start the server with a default IP address
-            serverInstance = SocketFingerprintServer.Start("localhost", 3005)
+            serverInstance = SocketFingerprintServer.Start("localhost", 3006)
         End If
 
         Try
@@ -38,7 +38,7 @@
             Console.WriteLine("Starting fingerprint service...")
 
             ' Single server instance on port 3005
-            serverInstance = SocketFingerprintServer.Start(serverApiAddress, 3005)
+            serverInstance = SocketFingerprintServer.Start(serverApiAddress, 3006)
 
             ' Add a short delay to allow initialization to complete
             Console.WriteLine("Waiting for initialization to complete...")

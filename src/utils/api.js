@@ -165,7 +165,44 @@ export async function getTemplates() {
 }
 
 export async function getUser(id) {
-  return await fetchAPI(`/users/${id}`);
+  try {
+    const response = await fetchAPI(`/users/${id}`);
+
+    // If response contains the user object directly, wrap it with success flag
+    if (response && response.user_id) {
+      return {
+        success: true,
+        user: response,
+      };
+    }
+
+    // If response already has success flag and a user property, return as-is
+    if (response.success && response.user) {
+      return response;
+    }
+
+    // Handle cases where the response might have a different structure
+    if (response && typeof response === "object") {
+      // Return a standardized format with the data we have
+      return {
+        success: true,
+        data: response,
+      };
+    }
+
+    // If we reach here, something is wrong with the response
+    console.warn("Unexpected API response format in getUser:", response);
+    return {
+      success: false,
+      message: "Unexpected API response format",
+    };
+  } catch (error) {
+    console.error(`Error fetching user ${id}:`, error);
+    return {
+      success: false,
+      message: error.message || "Failed to fetch user details",
+    };
+  }
 }
 
 export async function createUser(userData) {
@@ -176,9 +213,22 @@ export async function createUser(userData) {
 }
 
 export async function updateUser(id, userData) {
+  console.log(`Updating user ${id} with data:`, JSON.stringify(userData));
+
+  // Make sure all string fields have valid values (not null or undefined)
+  const normalizedUserData = {
+    ...userData,
+    display_name: userData.display_name || "",
+    email: userData.email || "",
+    phone: userData.phone || "",
+    address: userData.address || "",
+    position: userData.position || "",
+    bio: userData.bio || "",
+  };
+
   return await fetchAPI(`/users/${id}`, {
     method: "PUT",
-    body: JSON.stringify(userData),
+    body: JSON.stringify(normalizedUserData),
   });
 }
 

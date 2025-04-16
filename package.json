@@ -13,8 +13,7 @@
     "build": "webpack --config webpack.config.js",
     "watch": "webpack --config webpack.config.js --watch",
     "postinstall": "electron-rebuild",
-    "build-electron": "electron-builder",
-    "postbuild": "cd api && npm start && cd ../FingerprintAPI/FingerPrintA/FingerPrintA/bin/Debug/net8.0-windows && FingerPrintA.exe"
+    "build-electron": "electron-builder"
   },
   "build": {
     "appId": "com.attendanceelectron.yourapp",

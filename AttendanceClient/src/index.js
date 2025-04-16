@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, screen } = require("electron");
 const path = require("node:path");
-// const isDev = process.env.NODE_ENV === "development";
-const isDev = false;
+const isDev = process.env.NODE_ENV === "development";
+// const isDev = false;
 const { exec, spawn } = require("child_process");
 const os = require("os");
 const fs = require("fs");
@@ -60,14 +60,78 @@ function getLocalIpAddress() {
   return ipAddress;
 }
 
+// Start the local BiometricAPI process
+function startBiometricAPI() {
+  const localIp = getLocalIpAddress();
+  console.log(`Starting BiometricAPI with local IP address: ${localIp}`);
+
+  // Resolve the path to the BiometricAPI executable
+  let fingerprintServerPath;
+  try {
+    fingerprintServerPath = path.join(
+      app.getAppPath(),
+      "BiometricAPI",
+      "FingerPrintAPI.exe"
+    );
+    console.log(`BiometricAPI path: ${fingerprintServerPath}`);
+
+    if (!fs.existsSync(fingerprintServerPath)) {
+      console.error(
+        `BiometricAPI executable not found at: ${fingerprintServerPath}`
+      );
+      return null;
+    }
+  } catch (error) {
+    console.error("Error resolving BiometricAPI path:", error);
+    return null;
+  }
+
+  // Spawn the BiometricAPI process
+  try {
+    const fingerprintServerProcess = spawn(
+      fingerprintServerPath,
+      [localIp, "3006"],
+      {
+        detached: true,
+        windowsHide: true,
+      }
+    );
+
+    fingerprintServerProcess.stdout.on("data", (data) =>
+      console.log(`BiometricAPI: ${data}`)
+    );
+
+    fingerprintServerProcess.stderr.on("data", (data) =>
+      console.error(`BiometricAPI Error: ${data}`)
+    );
+
+    fingerprintServerProcess.on("error", (error) => {
+      console.error(`Failed to start BiometricAPI: ${error.message}`);
+    });
+
+    fingerprintServerProcess.on("close", (code) => {
+      console.log(`BiometricAPI process exited with code ${code}`);
+    });
+
+    // Don't wait for the child process to exit
+    fingerprintServerProcess.unref();
+
+    console.log("BiometricAPI process started successfully");
+    return fingerprintServerProcess;
+  } catch (error) {
+    console.error(`Error starting BiometricAPI: ${error.message}`);
+    return null;
+  }
+}
+
 // Function to check server connection
 function checkServerConnection(ipAddress, callback) {
-  console.log(`Checking server connection at ${ipAddress}:3000/api/auth/test`);
+  console.log(`Checking server connection at ${ipAddress}:3000/api/test`);
 
   const options = {
     hostname: ipAddress,
     port: 3000,
-    path: "/api/auth/test",
+    path: "/api/test",
     method: "GET",
     timeout: 3000, // 3 second timeout
   };
@@ -269,6 +333,14 @@ const createMainWindow = () => {
 app.whenReady().then(() => {
   createSplashWindow();
 
+  // Start the BiometricAPI process
+  const biometricProcess = startBiometricAPI();
+  if (!biometricProcess) {
+    console.warn(
+      "Failed to start BiometricAPI process, fingerprint functionality may not work"
+    );
+  }
+
   // Create main window after a delay to show splash screen
   setTimeout(() => {
     createMainWindow();
@@ -306,12 +378,14 @@ ipcMain.on("login", async (event, { username, password }) => {
   }
 });
 
-// Close the database when the app is about to quit
+// Add cleanup code for when the app is about to quit
 app.on("will-quit", async () => {
   try {
     await closeDb();
+    // BiometricAPI process is detached, so we don't need to kill it explicitly
+    console.log("Application cleanup complete");
   } catch (error) {
-    console.error("Error closing database:", error);
+    console.error("Error during application cleanup:", error);
   }
 });
 

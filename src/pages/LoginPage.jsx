@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import * as api from "../utils/api";
+import { CircularProgress, Box, Typography } from "@mui/material";
 
 const LoginPage = ({ onLogin }) => {
   const [username, setUsername] = useState("");
@@ -8,25 +10,74 @@ const LoginPage = ({ onLogin }) => {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [apiAvailable, setApiAvailable] = useState(false);
+  const [checkingConnection, setCheckingConnection] = useState(true);
+  const navigate = useNavigate();
 
   // Check if API is available on component mount
   useEffect(() => {
     const checkApiConnection = async () => {
+      setCheckingConnection(true);
       try {
+        console.log("Checking API connection...");
         const result = await api.testConnection();
+
+        // Update API availability state
         setApiAvailable(result.success);
         console.log(
           "API connection:",
           result.success ? "Available" : "Unavailable"
         );
+
+        // If API connection succeeded, we can stop checking
+        if (result.success) {
+          setCheckingConnection(false);
+        } else {
+          console.log("API unavailable");
+          // Keep the checking state active to show loading screen
+        }
       } catch (error) {
         console.error("API connection error:", error);
         setApiAvailable(false);
+        console.log("API connection error");
+      } finally {
+        // If API is not available, still stop checking to let user see the retry button
+        if (!apiAvailable) {
+          setCheckingConnection(false);
+        }
       }
     };
 
+    // Check connection once on mount
     checkApiConnection();
+
+    // No interval needed - will use manual retry instead
+
+    return () => {
+      // No cleanup needed without interval
+    };
   }, []);
+
+  // Function to manually retry API connection
+  const retryConnection = async () => {
+    setCheckingConnection(true);
+    try {
+      console.log("Manually retrying API connection...");
+      const result = await api.testConnection();
+      setApiAvailable(result.success);
+
+      if (result.success) {
+        setCheckingConnection(false);
+        console.log("API connection successful on retry");
+      } else {
+        setCheckingConnection(false);
+        console.log("API still unavailable after retry");
+      }
+    } catch (error) {
+      console.error("API connection retry error:", error);
+      setApiAvailable(false);
+      setCheckingConnection(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -129,6 +180,76 @@ const LoginPage = ({ onLogin }) => {
     }
   };
 
+  // If still checking API connection, show loading indicator with connecting message
+  if (checkingConnection) {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100vh",
+          backgroundColor: "#f5f7fa",
+        }}
+      >
+        <img
+          src={logo}
+          alt="Company Logo"
+          style={{ width: 150, marginBottom: 30 }}
+        />
+        <CircularProgress size={60} thickness={4} />
+        <Typography variant="h6" sx={{ mt: 3 }}>
+          Connecting to API server...
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Please ensure the API server is running
+        </Typography>
+      </Box>
+    );
+  }
+
+  // If API is not available, show connection error with retry button
+  if (!apiAvailable) {
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100vh",
+          backgroundColor: "#f5f7fa",
+        }}
+      >
+        <img
+          src={logo}
+          alt="Company Logo"
+          style={{ width: 150, marginBottom: 30 }}
+        />
+        <Typography variant="h5" color="error" sx={{ mb: 2 }}>
+          API Server Unavailable
+        </Typography>
+        <Typography
+          variant="body1"
+          sx={{ mb: 4, textAlign: "center", maxWidth: "80%" }}
+        >
+          Cannot connect to the API server.
+          <br />
+          Please ensure the server is running.
+        </Typography>
+        <button
+          onClick={retryConnection}
+          className="login-button"
+          style={{ padding: "12px 30px", marginTop: "20px" }}
+        >
+          Retry Connection
+        </button>
+      </Box>
+    );
+  }
+
+  // Only render login form if API is available
   return (
     <div className="login-container">
       <div className="login-left">

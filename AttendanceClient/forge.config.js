@@ -6,6 +6,7 @@ module.exports = {
     asar: true,
     extraResource: [
       // Include any external resources here
+      "BiometricAPI",
     ],
     ignore: [
       /^\/node_modules\/(?!(react|react-dom|scheduler)\/).*/,

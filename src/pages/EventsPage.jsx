@@ -312,7 +312,7 @@ const EventsPage = ({ user, onLogout }) => {
             </Box>
           ) : (
             <>
-              <TableContainer>
+              <TableContainer sx={{ maxHeight: "60vh", overflowY: "auto" }}>
                 <Table>
                   <TableHead>
                     <TableRow>

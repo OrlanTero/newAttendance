@@ -1,6 +1,46 @@
 const express = require("express");
 const router = express.Router();
 const User = require("../models/user");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+
+// Set up storage for uploaded files
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, "..", "uploads");
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename with timestamp
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(
+      null,
+      "user-avatar-" +
+        req.params.id +
+        "-" +
+        uniqueSuffix +
+        path.extname(file.originalname)
+    );
+  },
+});
+
+// Set up upload middleware
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB file size limit
+  fileFilter: function (req, file, cb) {
+    // Accept images only
+    if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
+      return cb(new Error("Only image files are allowed!"), false);
+    }
+    cb(null, true);
+  },
+});
 
 // Get all users
 router.get("/", async (req, res) => {
@@ -61,7 +101,16 @@ router.post("/", async (req, res) => {
 // Update user
 router.put("/:id", async (req, res) => {
   try {
-    const { display_name, biometric_data, image } = req.body;
+    const {
+      display_name,
+      email,
+      phone,
+      address,
+      position,
+      bio,
+      biometric_data,
+      image,
+    } = req.body;
 
     if (!display_name) {
       return res.status(400).json({
@@ -72,6 +121,11 @@ router.put("/:id", async (req, res) => {
 
     const result = await User.update(req.params.id, {
       display_name,
+      email,
+      phone,
+      address,
+      position,
+      bio,
       biometric_data,
       image,
     });
@@ -141,6 +195,42 @@ router.delete("/:id", async (req, res) => {
       res.status(404).json(result);
     }
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Avatar upload route
+router.post("/:id/avatar", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No file uploaded" });
+    }
+
+    const userId = req.params.id;
+    const imageUrl = `/api/uploads/${req.file.filename}`;
+
+    // Update the user with the new image URL
+    const result = await User.update(userId, { image: imageUrl });
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: "Avatar uploaded successfully",
+        imageUrl: imageUrl,
+      });
+    } else {
+      // Delete the uploaded file if the user update fails
+      fs.unlinkSync(req.file.path);
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error("Error uploading avatar:", error);
+    if (req.file) {
+      // Delete the uploaded file if an error occurs
+      fs.unlinkSync(req.file.path);
+    }
     res.status(500).json({ success: false, message: error.message });
   }
 });

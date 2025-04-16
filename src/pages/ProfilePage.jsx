@@ -1,207 +1,237 @@
 import React, { useState, useEffect } from "react";
 import {
-  Container,
   Box,
+  Container,
   Typography,
-  TextField,
-  Button,
-  Avatar,
   Paper,
-  Grid,
+  CircularProgress,
   Snackbar,
   Alert,
-  CircularProgress,
 } from "@mui/material";
-import { PersonOutline, Save } from "@mui/icons-material";
 import * as api from "../utils/api";
+import UserDetailView from "../components/UserDetailView";
 import Navbar from "../components/Navbar";
 
-const ProfilePage = ({ user, onProfileUpdate, onLogout }) => {
-  const [formData, setFormData] = useState({
-    display_name: "",
-  });
-  const [loading, setLoading] = useState(false);
+const ProfilePage = ({ user: initialUser, onLogout }) => {
+  const [currentUser, setCurrentUser] = useState(initialUser);
+  const [loading, setLoading] = useState(true);
+  const [userDetails, setUserDetails] = useState(null);
+  const [error, setError] = useState(null);
   const [notification, setNotification] = useState({
     open: false,
     message: "",
     severity: "success",
   });
 
+  // Add debug log
+  console.log("ProfilePage initialUser:", initialUser);
+  console.log("ProfilePage currentUser:", currentUser);
+
   useEffect(() => {
-    // Initialize form with user data when component mounts
-    if (user) {
-      setFormData({
-        display_name: user.display_name || "",
-      });
-    }
-  }, [user]);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prevData) => ({
-      ...prevData,
-      [name]: value,
-    }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!formData.display_name.trim()) {
-      setNotification({
-        open: true,
-        message: "Display name is required",
-        severity: "error",
-      });
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const result = await api.updateUser(user.user_id, {
-        display_name: formData.display_name,
-      });
-
-      if (result.success) {
-        setNotification({
-          open: true,
-          message: "Profile updated successfully",
-          severity: "success",
-        });
-
-        // Update the user in parent component
-        if (onProfileUpdate) {
-          onProfileUpdate({
-            ...user,
-            display_name: formData.display_name,
-          });
-        }
-      } else {
-        setNotification({
-          open: true,
-          message: result.message || "Failed to update profile",
-          severity: "error",
-        });
+    const fetchUserDetails = async () => {
+      if (!currentUser || !currentUser.user_id) {
+        console.error("No valid user_id in currentUser:", currentUser);
+        setError("Unable to load profile: Missing user ID");
+        setLoading(false);
+        return;
       }
-    } catch (error) {
-      setNotification({
-        open: true,
-        message: error.message || "An error occurred",
-        severity: "error",
-      });
-    } finally {
-      setLoading(false);
-    }
+
+      console.log("Fetching user details for user_id:", currentUser.user_id);
+
+      try {
+        setLoading(true);
+        const response = await api.getUser(currentUser.user_id);
+        console.log("API getUser response:", response);
+
+        // Handle different API response formats
+        if (response.success && response.user) {
+          // If the response has a user property, use that
+          console.log("Setting userDetails from response.user");
+          setUserDetails(response.user);
+        } else if (
+          response.success &&
+          response.data &&
+          typeof response.data === "object"
+        ) {
+          // If the response has a success flag and data property
+          console.log(
+            "Setting userDetails from response.data with success flag"
+          );
+          // Save the entire response to preserve the structure
+          setUserDetails(response);
+        } else if (response.data && typeof response.data === "object") {
+          // If the response has just a data property
+          console.log("Setting userDetails from response.data");
+          // Save the entire response to preserve the structure
+          setUserDetails(response);
+        } else if (response.user_id || response.username) {
+          // If the response itself is the user object
+          console.log("Setting userDetails from direct response");
+          setUserDetails(response);
+        } else {
+          console.error("Unexpected API response format:", response);
+          setError("Failed to load user details");
+          console.warn("Unexpected API response format:", response);
+        }
+      } catch (err) {
+        console.error("Error fetching user details:", err);
+        setError("An error occurred while loading user details");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserDetails();
+  }, [currentUser]);
+
+  const handleUserUpdate = (updatedUser) => {
+    console.log("Profile updated with new data:", updatedUser);
+
+    // Keep the complete user data structure with data property if it exists
+    setUserDetails((prevDetails) => {
+      if (prevDetails && prevDetails.data) {
+        return {
+          ...prevDetails,
+          data: {
+            ...prevDetails.data,
+            ...updatedUser,
+          },
+        };
+      }
+      return updatedUser;
+    });
+
+    // Update the current user state, ensuring we preserve the user_id and role
+    setCurrentUser((prevUser) => ({
+      ...prevUser,
+      user_id: updatedUser.user_id || prevUser.user_id, // Preserve user_id
+      display_name: updatedUser.display_name,
+      email: updatedUser.email,
+      phone: updatedUser.phone,
+      address: updatedUser.address,
+      position: updatedUser.position,
+      bio: updatedUser.bio,
+      image: updatedUser.image,
+      role: updatedUser.role || prevUser.role, // Preserve role
+    }));
+
+    console.log(
+      "Updated current user state with role and user_id:",
+      updatedUser.role || currentUser.role,
+      updatedUser.user_id || currentUser.user_id
+    );
+
+    // Force a refresh of the user details
+    setLoading(true);
+    setTimeout(() => {
+      // Make sure we still have a valid user_id
+      if (!currentUser.user_id) {
+        console.error("Missing user_id when refreshing user data");
+        setLoading(false);
+        setError("Failed to refresh user data: Missing user ID");
+        return;
+      }
+
+      api
+        .getUser(currentUser.user_id)
+        .then((response) => {
+          console.log("Refreshed user data response:", response);
+
+          if (response.success && response.user) {
+            console.log("Refreshed user data from response.user");
+            setUserDetails(response);
+          } else if (response.success && response.data) {
+            console.log(
+              "Refreshed user data from response.data with success flag"
+            );
+            setUserDetails(response);
+          } else if (response.data) {
+            console.log("Refreshed user data from response.data");
+            setUserDetails(response);
+          } else if (response.user_id || response.username) {
+            console.log("Refreshed user data from direct response");
+            setUserDetails(response);
+          }
+
+          setLoading(false);
+        })
+        .catch((err) => {
+          console.error("Error refreshing user data:", err);
+          setLoading(false);
+        });
+    }, 500); // Small delay to ensure database update is complete
+
+    setNotification({
+      open: true,
+      message: "Profile updated successfully!",
+      severity: "success",
+    });
   };
 
   const handleCloseNotification = () => {
-    setNotification({ ...notification, open: false });
+    setNotification({
+      ...notification,
+      open: false,
+    });
   };
 
-  if (!user) {
+  if (loading) {
     return (
-      <Container>
-        <Box sx={{ textAlign: "center", mt: 4 }}>
-          <Typography variant="h5">User not found</Typography>
-        </Box>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "calc(100vh - 64px)",
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Paper sx={{ p: 3 }}>
+          <Typography color="error" variant="h6">
+            {error}
+          </Typography>
+        </Paper>
       </Container>
     );
   }
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pt: 8 }}>
-      <Navbar user={user} onLogout={onLogout} />
+      <Navbar user={currentUser} onLogout={onLogout} />
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Typography variant="h4" gutterBottom>
+          My Profile
+        </Typography>
 
-      <Container maxWidth="md">
-        <Paper
-          elevation={3}
-          sx={{
-            p: 4,
-            mt: 4,
-            mb: 4,
-            borderRadius: 2,
-          }}
-        >
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              mb: 3,
+        {userDetails && (
+          <UserDetailView
+            user={{
+              // Properly extract user data from nested structure if it exists
+              ...(userDetails.data || userDetails),
+              // Always ensure user_id is present, fallback to currentUser's id if needed
+              user_id:
+                userDetails.user_id ||
+                (userDetails.data && userDetails.data.user_id) ||
+                currentUser?.user_id ||
+                1,
             }}
-          >
-            <Avatar
-              sx={{
-                width: 96,
-                height: 96,
-                bgcolor: "primary.main",
-                mb: 2,
-              }}
-            >
-              {user.display_name?.[0] || user.username?.[0] || (
-                <PersonOutline />
-              )}
-            </Avatar>
-            <Typography variant="h4" gutterBottom>
-              User Profile
-            </Typography>
-            <Typography variant="body1" color="textSecondary">
-              Update your profile information
-            </Typography>
-          </Box>
-
-          <form onSubmit={handleSubmit}>
-            <Grid container spacing={3}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Username"
-                  value={user.username}
-                  disabled
-                  helperText="Username cannot be changed"
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  required
-                  label="Display Name"
-                  name="display_name"
-                  value={formData.display_name}
-                  onChange={handleChange}
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    color="primary"
-                    startIcon={
-                      loading ? (
-                        <CircularProgress size={20} color="inherit" />
-                      ) : (
-                        <Save />
-                      )
-                    }
-                    disabled={loading}
-                  >
-                    {loading ? "Saving..." : "Save Changes"}
-                  </Button>
-                </Box>
-              </Grid>
-            </Grid>
-          </form>
-        </Paper>
+            onUpdate={handleUserUpdate}
+            onClose={() => {}} // No close action in profile page
+          />
+        )}
 
         <Snackbar
           open={notification.open}
           autoHideDuration={6000}
           onClose={handleCloseNotification}
-          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         >
           <Alert
             onClose={handleCloseNotification}

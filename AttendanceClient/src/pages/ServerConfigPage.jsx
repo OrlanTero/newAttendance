@@ -101,8 +101,8 @@ const ServerConfigPage = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-      console.log(`Direct fetch to http://${ipAddress}:3000/api/auth/test`);
-      const response = await fetch(`http://${ipAddress}:3000/api/auth/test`, {
+      console.log(`Direct fetch to http://${ipAddress}:3000/api/test`);
+      const response = await fetch(`http://${ipAddress}:3000/api/test`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -169,7 +169,7 @@ const ServerConfigPage = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`http://${ipAddress}:3000/api/auth/test`, {
+      const response = await fetch(`http://${ipAddress}:3000/api/test`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -234,29 +234,16 @@ const ServerConfigPage = () => {
       // Clear the saved IP address
       localStorage.removeItem("serverIpAddress");
 
-      // Reset to the default IP
-      if (window.ipConfig) {
-        window.ipConfig
-          .getLocalIp()
-          .then((ip) => {
-            console.log("Reset to IP from main process:", ip);
-            setIpAddress(ip);
-            api.updateServerIp(ip);
-            setSuccess("Server configuration has been reset to default");
-          })
-          .catch((err) => {
-            console.error("Failed to get IP from main process:", err);
-            const defaultIp = "192.168.1.12"; // Changed from 127.0.0.1 to match the server
-            setIpAddress(defaultIp);
-            api.updateServerIp(defaultIp);
-            setSuccess(`Server configuration has been reset to ${defaultIp}`);
-          });
-      } else {
-        const defaultIp = "192.168.1.12"; // Changed from 127.0.0.1 to match the server
-        setIpAddress(defaultIp);
-        api.updateServerIp(defaultIp);
-        setSuccess(`Server configuration has been reset to ${defaultIp}`);
-      }
+      // Reset to the correct IP address
+      const defaultIp = "192.168.1.19"; // Updated to match the server
+      setIpAddress(defaultIp);
+      api.updateServerIp(defaultIp);
+      setSuccess(`Server configuration has been reset to ${defaultIp}`);
+
+      // Wait a moment before testing the connection with the new IP
+      setTimeout(() => {
+        testConnection();
+      }, 500);
     } catch (err) {
       console.error("Reset configuration error:", err);
       setError(`Failed to reset configuration: ${err.message}`);

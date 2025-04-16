@@ -87,16 +87,10 @@ const App = () => {
       try {
         // Set a shorter timeout for the connection test
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // Increasing timeout to 5 seconds
 
-        const result = await fetch(`${api.API_URL}/auth/test`, {
-          signal: controller.signal,
-        })
-          .then((res) => res.json())
-          .catch((err) => {
-            console.error("Server connection fetch error:", err);
-            return { success: false, message: err.message };
-          });
+        // Use the testConnection function from API instead of direct fetch
+        const result = await api.testConnection();
 
         clearTimeout(timeoutId);
 

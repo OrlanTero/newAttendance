@@ -22,10 +22,14 @@ import {
   Language as LanguageIcon,
   Notifications as NotificationsIcon,
   Settings as SettingsIcon,
+  ManageAccounts as ManageAccountsIcon,
 } from "@mui/icons-material";
 
 const SettingsPage = ({ user, onLogout }) => {
   const navigate = useNavigate();
+
+  // Check if the user has permission to manage users
+  const canManageUsers = user?.role === "admin" || user?.role === "captain";
 
   const settingsOptions = [
     {
@@ -46,6 +50,19 @@ const SettingsPage = ({ user, onLogout }) => {
       icon: <SecurityIcon sx={{ fontSize: 60, color: "#ff9800" }} />,
       action: () => navigate("/change-password"),
     },
+    // Only show User Management for admin and captain users
+    ...(canManageUsers
+      ? [
+          {
+            title: "User Management",
+            description: "Manage user accounts and permissions",
+            icon: (
+              <ManageAccountsIcon sx={{ fontSize: 60, color: "#e91e63" }} />
+            ),
+            action: () => navigate("/user-management"),
+          },
+        ]
+      : []),
     {
       title: "Display Settings",
       description: "Customize application appearance and theme",

@@ -31,9 +31,16 @@ function initDatabase() {
         username TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
         display_name TEXT NOT NULL,
+        email TEXT,
+        phone TEXT,
+        address TEXT,
+        position TEXT,
+        bio TEXT,
         biometric_data TEXT,
         image TEXT,
-        date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        role TEXT,
+        date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `,
       (err) => {
@@ -272,43 +279,91 @@ function initDatabase() {
 }
 
 // Initialize the database
-initDatabase().catch((err) => {
-  console.error("Database initialization failed:", err);
-});
+initDatabase()
+  .then(() => {
+    console.log("Database initialized successfully");
+    // Update user table schema to add missing columns
+    console.log(
+      "Running schema update to add any missing columns to the users table..."
+    );
+    return updateUserTableSchema();
+  })
+  .then(() => {
+    console.log("User table schema update completed");
+    // Now that the schema is updated, ensure default users exist
+    return ensureDefaultUsers();
+  })
+  .then(() => {
+    console.log("Default users check completed");
+    console.log("Database setup complete!");
+  })
+  .then(() => {
+    // Force an immediate update to the Admin user's role
+    forceUpdateAdminRole();
+  })
+  .catch((err) => {
+    console.error("Database initialization failed:", err);
+  });
 
 // Helper functions for database operations
 const dbMethods = {
   // Get all users
   getAllUsers: () => {
     return new Promise((resolve, reject) => {
-      db.all(
-        "SELECT user_id, username, display_name, image, date_created FROM users",
-        [],
-        (err, rows) => {
+      // Check if updated_at column exists first
+      db.all("PRAGMA table_info(users)", [], (err, columns) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        // Determine if updated_at column exists
+        const hasUpdatedAt =
+          columns && columns.some((col) => col.name === "updated_at");
+
+        // Build query based on available columns
+        const query = `SELECT user_id, username, display_name, email, phone, address, position, bio, image, role, date_created${
+          hasUpdatedAt ? ", updated_at" : ""
+        } FROM users`;
+
+        db.all(query, [], (err, rows) => {
           if (err) {
             reject(err);
             return;
           }
           resolve(rows);
-        }
-      );
+        });
+      });
     });
   },
 
   // Get user by ID
   getUserById: (userId) => {
     return new Promise((resolve, reject) => {
-      db.get(
-        "SELECT user_id, username, display_name, image, date_created FROM users WHERE user_id = ?",
-        [userId],
-        (err, row) => {
+      // Check if updated_at column exists first
+      db.all("PRAGMA table_info(users)", [], (err, columns) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        // Determine if updated_at column exists
+        const hasUpdatedAt =
+          columns && columns.some((col) => col.name === "updated_at");
+
+        // Build query based on available columns
+        const query = `SELECT user_id, username, display_name, email, phone, address, position, bio, image, role, date_created${
+          hasUpdatedAt ? ", updated_at" : ""
+        } FROM users WHERE user_id = ?`;
+
+        db.get(query, [userId], (err, row) => {
           if (err) {
             reject(err);
             return;
           }
           resolve(row);
-        }
-      );
+        });
+      });
     });
   },
 
@@ -335,18 +390,78 @@ const dbMethods = {
       username,
       password,
       display_name,
+      email = null,
+      phone = null,
+      address = null,
+      position = null,
+      bio = null,
       biometric_data = null,
       image = null,
+      role = null,
     } = userData;
 
     return new Promise((resolve, reject) => {
-      db.run(
-        `
-        INSERT INTO users (username, password, display_name, biometric_data, image)
-        VALUES (?, ?, ?, ?, ?)
-      `,
-        [username, password, display_name, biometric_data, image],
-        function (err) {
+      // First check if updated_at column exists
+      db.all("PRAGMA table_info(users)", [], (err, columns) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        // Determine if updated_at column exists
+        const hasUpdatedAt =
+          columns && columns.some((col) => col.name === "updated_at");
+        const now = new Date().toISOString();
+
+        // Build SQL query based on column existence
+        let sql, params;
+
+        if (hasUpdatedAt) {
+          sql = `
+            INSERT INTO users (
+              username, password, display_name, email, phone, address, position, bio, 
+              biometric_data, image, role, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `;
+          params = [
+            username,
+            password,
+            display_name,
+            email,
+            phone,
+            address,
+            position,
+            bio,
+            biometric_data,
+            image,
+            role,
+            now,
+          ];
+        } else {
+          sql = `
+            INSERT INTO users (
+              username, password, display_name, email, phone, address, position, bio, 
+              biometric_data, image, role
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `;
+          params = [
+            username,
+            password,
+            display_name,
+            email,
+            phone,
+            address,
+            position,
+            bio,
+            biometric_data,
+            image,
+            role,
+          ];
+        }
+
+        db.run(sql, params, function (err) {
           if (err) {
             if (err.message.includes("UNIQUE constraint failed")) {
               resolve({ success: false, message: "Username already exists" });
@@ -361,35 +476,140 @@ const dbMethods = {
             user_id: this.lastID,
             message: "User created successfully",
           });
-        }
-      );
+        });
+      });
     });
   },
 
   // Update user
   updateUser: (userId, userData) => {
-    const { display_name, biometric_data, image } = userData;
+    const {
+      display_name,
+      email = "",
+      phone = "",
+      address = "",
+      position = "",
+      bio = "",
+      biometric_data,
+      image,
+    } = userData;
 
     return new Promise((resolve, reject) => {
-      db.run(
-        `
-        UPDATE users 
-        SET display_name = ?, biometric_data = ?, image = ?
-        WHERE user_id = ?
-      `,
-        [display_name, biometric_data, image, userId],
-        function (err) {
-          if (err) {
-            reject(err);
+      // First get the existing user to determine if it's the Admin
+      db.get(
+        "SELECT username, role FROM users WHERE user_id = ?",
+        [userId],
+        (roleErr, existingUser) => {
+          if (roleErr) {
+            reject(roleErr);
             return;
           }
 
-          resolve({
-            success: this.changes > 0,
-            message:
-              this.changes > 0
-                ? "User updated successfully"
-                : "No changes made or user not found",
+          // If user doesn't exist, return error
+          if (!existingUser) {
+            resolve({
+              success: false,
+              message: "User not found",
+            });
+            return;
+          }
+
+          // Check if this is the Admin user - if so, always set role to "admin"
+          const isAdmin =
+            existingUser.username === "Admin" ||
+            existingUser.username.toLowerCase() === "admin";
+          const role = isAdmin ? "admin" : existingUser.role || "user";
+
+          console.log(
+            `Updating user ${userId} (${existingUser.username}), isAdmin=${isAdmin}, role=${role}`
+          );
+
+          // Print the values being saved
+          console.log(
+            `Saving user data: display_name=${display_name}, email=${email}, phone=${phone}, address=${address}, position=${position}, bio=${bio}, role=${role}`
+          );
+
+          // Get current timestamp for updated_at
+          const now = new Date().toISOString();
+
+          // Execute the update query with all fields
+          const query = `
+            UPDATE users 
+            SET display_name = ?, email = ?, phone = ?, address = ?, position = ?, bio = ?,
+                biometric_data = ?, image = ?, role = ?, updated_at = ?
+            WHERE user_id = ?
+          `;
+
+          const params = [
+            display_name,
+            email, // Empty string instead of null
+            phone, // Empty string instead of null
+            address, // Empty string instead of null
+            position, // Empty string instead of null
+            bio, // Empty string instead of null
+            biometric_data,
+            image,
+            role,
+            now,
+            userId,
+          ];
+
+          db.run(query, params, function (err) {
+            if (err) {
+              console.error("Error updating user:", err.message);
+              reject(err);
+              return;
+            }
+
+            if (this.changes === 0) {
+              resolve({
+                success: false,
+                message: "No changes made or user not found",
+              });
+              return;
+            }
+
+            // Fetch the updated user to return
+            db.get(
+              "SELECT * FROM users WHERE user_id = ?",
+              [userId],
+              (err, updatedUser) => {
+                if (err) {
+                  reject(err);
+                  return;
+                }
+
+                if (!updatedUser) {
+                  resolve({
+                    success: false,
+                    message: "Failed to retrieve updated user details",
+                  });
+                  return;
+                }
+
+                // Remove sensitive information before sending the user data
+                const userWithoutPassword = { ...updatedUser };
+                delete userWithoutPassword.password;
+
+                // Convert null values to empty strings for consistency
+                if (userWithoutPassword.email === null)
+                  userWithoutPassword.email = "";
+                if (userWithoutPassword.phone === null)
+                  userWithoutPassword.phone = "";
+                if (userWithoutPassword.address === null)
+                  userWithoutPassword.address = "";
+                if (userWithoutPassword.position === null)
+                  userWithoutPassword.position = "";
+                if (userWithoutPassword.bio === null)
+                  userWithoutPassword.bio = "";
+
+                resolve({
+                  success: true,
+                  message: "User updated successfully",
+                  user: userWithoutPassword,
+                });
+              }
+            );
           });
         }
       );
@@ -399,14 +619,38 @@ const dbMethods = {
   // Update user password
   updateUserPassword: (userId, newPassword) => {
     return new Promise((resolve, reject) => {
-      db.run(
-        `
+      // First check if updated_at column exists
+      db.all("PRAGMA table_info(users)", [], (err, columns) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        // Determine if updated_at column exists
+        const hasUpdatedAt =
+          columns && columns.some((col) => col.name === "updated_at");
+        const now = new Date().toISOString();
+
+        // Build the query based on whether updated_at exists
+        let query, params;
+
+        if (hasUpdatedAt) {
+          query = `
+            UPDATE users 
+            SET password = ?, updated_at = ?
+            WHERE user_id = ?
+          `;
+          params = [newPassword, now, userId];
+        } else {
+          query = `
         UPDATE users 
         SET password = ?
         WHERE user_id = ?
-      `,
-        [newPassword, userId],
-        function (err) {
+          `;
+          params = [newPassword, userId];
+        }
+
+        db.run(query, params, function (err) {
           if (err) {
             reject(err);
             return;
@@ -419,8 +663,8 @@ const dbMethods = {
                 ? "Password updated successfully"
                 : "User not found",
           });
-        }
-      );
+        });
+      });
     });
   },
 
@@ -496,6 +740,33 @@ const dbMethods = {
         if (passwordMatches) {
           // Don't return the password in the response
           const { password, ...userWithoutPassword } = user;
+
+          // Ensure Admin user always has admin role
+          if (isDefaultAdmin) {
+            // Always override with admin role for Admin user
+            userWithoutPassword.role = "admin";
+            console.log(`Setting admin role for Admin user login`);
+
+            // Also update the database if needed
+            if (!user.role || user.role !== "admin") {
+              db.run(
+                "UPDATE users SET role = 'admin' WHERE username = 'Admin'",
+                [],
+                (updateErr) => {
+                  if (updateErr) {
+                    console.error(
+                      `Error updating Admin role: ${updateErr.message}`
+                    );
+                  } else {
+                    console.log(
+                      "Updated Admin user role in database during login"
+                    );
+                  }
+                }
+              );
+            }
+          }
+
           console.log(`Authentication successful for user: ${user.username}`);
           resolve({
             success: true,
@@ -1363,6 +1634,210 @@ const dbMethods = {
   },
 };
 
+// Add a function to create the Captain user if it doesn't exist
+function ensureDefaultUsers() {
+  return new Promise((resolve, reject) => {
+    console.log("Checking for default users...");
+
+    // First check if Admin has correct role
+    db.get(
+      "SELECT * FROM users WHERE username = 'Admin'",
+      [],
+      (adminErr, adminRow) => {
+        if (adminErr) {
+          console.error("Error checking for Admin user:", adminErr.message);
+          reject(adminErr);
+          return;
+        }
+
+        // If Admin exists but has wrong role, update it
+        if (adminRow && (!adminRow.role || adminRow.role !== "admin")) {
+          console.log(
+            "Admin user exists but has incorrect role. Updating to 'admin'..."
+          );
+          db.run(
+            `UPDATE users SET role = 'admin' WHERE username = 'Admin'`,
+            function (err) {
+              if (err) {
+                console.error("Error updating Admin role:", err.message);
+                // Don't reject, continue to Captain check
+                console.log("Continuing despite error updating Admin role");
+              } else {
+                console.log("Updated Admin user role to 'admin'");
+              }
+
+              // Continue with Captain check
+              checkCaptainUser(resolve, reject);
+            }
+          );
+        } else {
+          // Admin role is correct or user doesn't exist, continue to Captain check
+          checkCaptainUser(resolve, reject);
+        }
+      }
+    );
+  });
+}
+
+// Helper function to check for Captain user
+function checkCaptainUser(resolve, reject) {
+  // Check if Captain exists
+  db.get(
+    "SELECT * FROM users WHERE LOWER(username) = LOWER(?)",
+    ["Captain"],
+    (err, row) => {
+      if (err) {
+        console.error("Error checking for Captain user:", err.message);
+        reject(err);
+        return;
+      }
+
+      if (!row) {
+        console.log("Captain user not found, creating it now...");
+
+        // Captain doesn't exist, create it
+        db.run(
+          `INSERT INTO users (username, password, display_name, role) 
+           VALUES (?, ?, ?, ?)`,
+          ["Captain", "Captain", "Captain", "captain"],
+          function (err) {
+            if (err) {
+              console.error("Error creating Captain user:", err.message);
+              reject(err);
+              return;
+            }
+            console.log(
+              "Captain user created successfully with ID:",
+              this.lastID
+            );
+            resolve(true);
+          }
+        );
+      } else {
+        console.log("Captain user already exists with ID:", row.user_id);
+        resolve(true);
+      }
+    }
+  );
+}
+
+// Helper function to check if a column exists in a table
+function columnExists(table, column) {
+  return new Promise((resolve, reject) => {
+    db.get(`PRAGMA table_info(${table})`, [], (err, rows) => {
+      if (err) {
+        console.error(
+          `Error checking for column ${column} in table ${table}:`,
+          err
+        );
+        reject(err);
+        return;
+      }
+
+      // Check if column exists in the results
+      const exists = rows && rows.name === column;
+      console.log(`Column ${column} in table ${table} exists: ${exists}`);
+      resolve(exists);
+    });
+  });
+}
+
+// Function to check and update user table schema as needed
+function updateUserTableSchema() {
+  return new Promise((resolve, reject) => {
+    console.log("Checking user table schema...");
+
+    // Check if we need to add new columns
+    db.all(`PRAGMA table_info(users)`, [], (err, columns) => {
+      if (err) {
+        console.error("Error checking user table schema:", err.message);
+        reject(err);
+        return;
+      }
+
+      const columnNames = columns.map((col) => col.name);
+      console.log("Found column info (array):", columns.length, "columns");
+      console.log("Has role column:", columnNames.includes("role"));
+      console.log("Has updated_at column:", columnNames.includes("updated_at"));
+
+      // Build alter table statements for missing columns
+      const missingColumns = [];
+
+      if (!columnNames.includes("email")) missingColumns.push("email TEXT");
+      if (!columnNames.includes("phone")) missingColumns.push("phone TEXT");
+      if (!columnNames.includes("address")) missingColumns.push("address TEXT");
+      if (!columnNames.includes("position"))
+        missingColumns.push("position TEXT");
+      if (!columnNames.includes("bio")) missingColumns.push("bio TEXT");
+      if (!columnNames.includes("role")) missingColumns.push("role TEXT");
+      // Use a simple TEXT column for updated_at instead of TIMESTAMP with DEFAULT
+      if (!columnNames.includes("updated_at"))
+        missingColumns.push("updated_at TEXT");
+
+      if (missingColumns.length === 0) {
+        console.log("User table schema is up to date");
+        resolve();
+        return;
+      }
+
+      console.log("Adding missing columns to users table:", missingColumns);
+
+      // Add each missing column one by one
+      const addColumn = (index) => {
+        if (index >= missingColumns.length) {
+          console.log("All missing columns added successfully");
+          resolve();
+          return;
+        }
+
+        const column = missingColumns[index];
+        const columnName = column.split(" ")[0];
+
+        db.run(`ALTER TABLE users ADD COLUMN ${column}`, (err) => {
+          if (err) {
+            // If column already exists, that's fine, continue
+            if (err.message.includes("duplicate column name")) {
+              console.log(`Column ${columnName} already exists, skipping`);
+              addColumn(index + 1);
+            } else {
+              console.error(`Error adding column ${columnName}:`, err.message);
+              reject(err);
+            }
+            return;
+          }
+
+          console.log(`Added column ${columnName} to users table`);
+          addColumn(index + 1);
+        });
+      };
+
+      // Start adding columns
+      addColumn(0);
+    });
+  });
+}
+
+// Force an immediate update to the Admin user's role
+function forceUpdateAdminRole() {
+  console.log("Forcefully updating Admin user role to 'admin'...");
+
+  db.run(
+    `UPDATE users SET role = 'admin' WHERE username = 'Admin'`,
+    function (err) {
+      if (err) {
+        console.error("Error updating Admin role:", err.message);
+      } else {
+        console.log(
+          `Updated Admin user role to 'admin'. Rows affected: ${this.changes}`
+        );
+      }
+    }
+  );
+}
+
+// Call this function immediately to fix any existing issues
+forceUpdateAdminRole();
+
 // Export all database methods
 module.exports = {
   initDatabase,
@@ -1415,4 +1890,16 @@ module.exports = {
   getEmployeeWorkSchedule: dbMethods.getEmployeeWorkSchedule,
   createWorkSchedule: dbMethods.createWorkSchedule,
   updateWorkSchedule: dbMethods.updateWorkSchedule,
+
+  // New method to ensure default users
+  ensureDefaultUsers,
+
+  // New method to update user table schema
+  updateUserTableSchema,
+
+  // Force update admin role
+  forceUpdateAdminRole,
+
+  // Export the updateUserTableSchema function
+  getDb: () => db,
 };

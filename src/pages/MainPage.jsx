@@ -249,16 +249,29 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
         endDateStr
       );
 
-      if (result && Array.isArray(result.data)) {
-        // Process the attendance data for the line chart
-        processAttendanceData(result.data);
+      console.log("Weekly attendance API response:", result);
+
+      // Check different possible response formats
+      let attendanceData = [];
+      if (result && Array.isArray(result)) {
+        attendanceData = result;
+      } else if (result && result.success && Array.isArray(result.data)) {
+        attendanceData = result.data;
+      } else if (result && Array.isArray(result.data)) {
+        attendanceData = result.data;
       } else {
-        console.error("Failed to get attendance data for line chart", result);
-        // Set empty data for the line chart
-        processAttendanceData([]);
+        console.error(
+          "Unexpected response format from getAttendanceByDateRange:",
+          result
+        );
+        attendanceData = [];
       }
+
+      // Process the attendance data for the charts
+      processAttendanceData(attendanceData);
     } catch (error) {
       console.error("Error fetching weekly attendance data:", error);
+      // Still call processAttendanceData with empty array to initialize charts
       processAttendanceData([]);
     }
   };
@@ -305,22 +318,37 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
   // Process current day's attendance stats
   const processCurrentDayStats = (data, employeesList = employees) => {
     const today = new Date().toISOString().split("T")[0];
-    const todayData = data.filter((record) => record.date === today);
+
+    // Make sure we have data and it's an array
+    if (!Array.isArray(data)) {
+      console.warn("Data is not an array in processCurrentDayStats:", data);
+      data = [];
+    }
+
+    // Filter today's data, accounting for different date formats
+    const todayData = data.filter((record) => {
+      let recordDate = record.date;
+      // Handle ISO format with time
+      if (recordDate && recordDate.includes("T")) {
+        recordDate = recordDate.split("T")[0];
+      }
+      return recordDate === today;
+    });
 
     // Get all employees
     const totalEmployees = employeesList.length;
 
     // Count present, late, and undertime employees
     const presentCount = todayData.filter(
-      (record) => record.status === "present"
+      (record) => record.status && record.status.toLowerCase() === "present"
     ).length;
 
     const lateCount = todayData.filter(
-      (record) => record.status === "late"
+      (record) => record.status && record.status.toLowerCase() === "late"
     ).length;
 
     const undertimeCount = todayData.filter(
-      (record) => record.status === "undertime"
+      (record) => record.status && record.status.toLowerCase() === "undertime"
     ).length;
 
     // Absent is total employees minus those who checked in
@@ -334,29 +362,61 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
       undertime: undertimeCount,
       total: totalEmployees,
     });
+
+    console.log("Updated daily stats:", {
+      present: presentCount,
+      late: lateCount,
+      absent: absentCount >= 0 ? absentCount : 0,
+      undertime: undertimeCount,
+      total: totalEmployees,
+    });
   };
 
   // Process monthly data for the trend chart
   const processMonthlyData = (data) => {
-    if (!Array.isArray(data)) return;
+    if (!Array.isArray(data)) {
+      console.warn("Data is not an array in processMonthlyData:", data);
+      return;
+    }
 
     // Group by date
     const groupedByDate = data.reduce((acc, record) => {
-      const date = record.date.split("T")[0];
-      if (!acc[date]) {
-        acc[date] = { present: 0, late: 0, absent: 0, total: 0 };
+      // Handle different date formats
+      let date = record.date;
+      if (date && date.includes("T")) {
+        date = date.split("T")[0];
       }
 
-      if (record.status === "present") acc[date].present++;
-      else if (record.status === "late") acc[date].late++;
-      else acc[date].absent++;
+      if (!acc[date]) {
+        acc[date] = { present: 0, late: 0, absent: 0, undertime: 0, total: 0 };
+      }
+
+      const status = record.status?.toLowerCase();
+      if (status === "present") acc[date].present++;
+      else if (status === "late") acc[date].late++;
+      else if (status === "absent") acc[date].absent++;
+      else if (status === "undertime") acc[date].undertime++;
 
       acc[date].total++;
       return acc;
     }, {});
 
-    // Convert to format for chart
-    const sortedDates = Object.keys(groupedByDate).sort();
+    // Convert to format for chart - make sure we have at least some data points
+    let sortedDates = Object.keys(groupedByDate).sort();
+
+    // If we don't have any data, add a fallback entry to show something
+    if (sortedDates.length === 0) {
+      console.log("No monthly data found, using fallback data");
+      const today = new Date().toISOString().split("T")[0];
+      groupedByDate[today] = {
+        present: 0,
+        late: 0,
+        absent: 0,
+        undertime: 0,
+        total: 0,
+      };
+      sortedDates = [today];
+    }
 
     const chartData = {
       labels: sortedDates.map((date) => format(parseISO(date), "MMM dd")),
@@ -382,9 +442,17 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
           backgroundColor: "rgba(244, 67, 54, 0.5)",
           tension: 0.3,
         },
+        {
+          label: "Undertime",
+          data: sortedDates.map((date) => groupedByDate[date].undertime),
+          borderColor: "#9c27b0",
+          backgroundColor: "rgba(156, 39, 176, 0.5)",
+          tension: 0.3,
+        },
       ],
     };
 
+    console.log("Setting monthly chart data:", chartData);
     setMonthlyData(chartData);
   };
 
@@ -449,6 +517,12 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
       !Array.isArray(departments) ||
       departments.length === 0
     ) {
+      console.warn("Invalid data for department chart:", {
+        dataIsArray: Array.isArray(data),
+        departmentsIsArray: Array.isArray(departments),
+        departmentsCount: departments.length,
+      });
+
       // Set default empty chart data
       setDeptData({
         labels: ["No Department Data Available"],
@@ -479,10 +553,18 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
       ...new Set(data.map((record) => record.employee_id)),
     ].filter((id) => id);
 
+    console.log(
+      `Found ${employeeIds.length} unique employees in attendance data`
+    );
+
     // Fetch employee details if we have attendance records
     if (employeeIds.length > 0) {
       Promise.all(employeeIds.map((id) => api.getEmployee(id)))
         .then((employeeResults) => {
+          console.log(
+            `Received ${employeeResults.length} employee details from API`
+          );
+
           // Create employee to department lookup
           const employeeDeptMap = {};
 
@@ -537,6 +619,11 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
             "#607d8b",
           ];
 
+          // Make sure we have at least some data
+          if (Object.keys(deptCounts).length === 0) {
+            deptCounts["No Data"] = 1;
+          }
+
           // Create chart data
           const chartData = {
             labels: Object.keys(deptCounts),
@@ -552,6 +639,7 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
             ],
           };
 
+          console.log("Setting department chart data:", chartData);
           setDeptData(chartData);
         })
         .catch((error) => {
@@ -570,6 +658,7 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
         });
     } else {
       // No employee data to process
+      console.log("No employee data found for department chart");
       setDeptData({
         labels: ["No Attendance Data"],
         datasets: [
@@ -593,6 +682,12 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
       undertime: 0,
     };
 
+    // Make sure we have data and it's an array
+    if (!Array.isArray(data)) {
+      console.warn("Data is not an array in processSummaryData:", data);
+      data = [];
+    }
+
     data.forEach((record) => {
       if (
         record.status &&
@@ -602,8 +697,26 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
       }
     });
 
+    // Check if we have any data
+    const totalCount = Object.values(statusCounts).reduce(
+      (sum, count) => sum + count,
+      0
+    );
+
+    // If no records found, add some placeholder data to show the chart properly
+    if (totalCount === 0) {
+      console.log(
+        "No attendance data found for summary chart, using placeholder data"
+      );
+      // Add placeholder values to show the chart structure
+      statusCounts.present = 1;
+      statusCounts.absent = 1;
+      statusCounts.late = 1;
+      statusCounts.undertime = 1;
+    }
+
     // Create the chart data
-    setSummaryData({
+    const summaryChartData = {
       labels: ["Present", "Late", "Absent", "Undertime"],
       datasets: [
         {
@@ -618,7 +731,10 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
           borderWidth: 1,
         },
       ],
-    });
+    };
+
+    console.log("Setting summary chart data:", summaryChartData);
+    setSummaryData(summaryChartData);
   };
 
   // Process the attendance data for the line chart
@@ -643,23 +759,34 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
       const undertimeCounts = Array(7).fill(0);
 
       // Count records by date and status
-      data.forEach((record) => {
-        const recordDate = record.date;
-        const dateIndex = dates.indexOf(recordDate);
+      if (Array.isArray(data)) {
+        data.forEach((record) => {
+          // Handle date format: it might be in 'date' field with different formats
+          let recordDate = record.date;
 
-        if (dateIndex !== -1) {
-          const status = record.status?.toLowerCase();
-          if (status === "present") {
-            presentCounts[dateIndex]++;
-          } else if (status === "late") {
-            lateCounts[dateIndex]++;
-          } else if (status === "absent") {
-            absentCounts[dateIndex]++;
-          } else if (status === "undertime") {
-            undertimeCounts[dateIndex]++;
+          // Check if the date has a T format and extract just the date part
+          if (recordDate && recordDate.includes("T")) {
+            recordDate = recordDate.split("T")[0];
           }
-        }
-      });
+
+          const dateIndex = dates.indexOf(recordDate);
+
+          if (dateIndex !== -1) {
+            const status = record.status?.toLowerCase();
+            if (status === "present") {
+              presentCounts[dateIndex]++;
+            } else if (status === "late") {
+              lateCounts[dateIndex]++;
+            } else if (status === "absent") {
+              absentCounts[dateIndex]++;
+            } else if (status === "undertime") {
+              undertimeCounts[dateIndex]++;
+            }
+          }
+        });
+      } else {
+        console.warn("Data is not an array in processAttendanceData:", data);
+      }
 
       // Format dates for display
       const displayDates = dates.map((date) =>
@@ -1337,47 +1464,63 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
                   </Box>
                 ) : (
                   <>
-                    {chartTab === 0 && Object.keys(weeklyData).length > 0 && (
-                      <Bar options={barOptions} data={weeklyData} />
-                    )}
-                    {chartTab === 1 && Object.keys(monthlyData).length > 0 && (
-                      <Line options={lineOptions} data={lineData} />
-                    )}
-                    {chartTab === 2 && Object.keys(deptData).length > 0 && (
-                      <Box
-                        sx={{
-                          height: "100%",
-                          display: "flex",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Box sx={{ width: "70%", height: "100%" }}>
-                          <Doughnut options={doughnutOptions} data={deptData} />
+                    {chartTab === 0 &&
+                      Object.keys(weeklyData).length > 0 &&
+                      weeklyData.datasets && (
+                        <Bar options={barOptions} data={weeklyData} />
+                      )}
+                    {chartTab === 1 &&
+                      Object.keys(lineData).length > 0 &&
+                      lineData.datasets && (
+                        <Line options={lineOptions} data={lineData} />
+                      )}
+                    {chartTab === 2 &&
+                      Object.keys(deptData).length > 0 &&
+                      deptData.datasets && (
+                        <Box
+                          sx={{
+                            height: "100%",
+                            display: "flex",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Box sx={{ width: "70%", height: "100%" }}>
+                            <Doughnut
+                              options={doughnutOptions}
+                              data={deptData}
+                            />
+                          </Box>
                         </Box>
-                      </Box>
-                    )}
-                    {chartTab === 3 && Object.keys(summaryData).length > 0 && (
-                      <Box
-                        sx={{
-                          height: "100%",
-                          display: "flex",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Box sx={{ width: "60%", height: "100%" }}>
-                          <Pie options={pieOptions} data={summaryData} />
+                      )}
+                    {chartTab === 3 &&
+                      Object.keys(summaryData).length > 0 &&
+                      summaryData.datasets && (
+                        <Box
+                          sx={{
+                            height: "100%",
+                            display: "flex",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Box sx={{ width: "60%", height: "100%" }}>
+                            <Pie options={pieOptions} data={summaryData} />
+                          </Box>
                         </Box>
-                      </Box>
-                    )}
-                    {((chartTab === 0 &&
-                      Object.keys(weeklyData).length === 0) ||
-                      (chartTab === 1 && Object.keys(lineData).length === 0) ||
-                      (chartTab === 2 && Object.keys(deptData).length === 0) ||
-                      (chartTab === 3 &&
-                        Object.keys(summaryData).length === 0)) && (
+                      )}
+                    {(chartTab === 0 &&
+                      (!Object.keys(weeklyData).length ||
+                        !weeklyData.datasets)) ||
+                    (chartTab === 1 &&
+                      (!Object.keys(lineData).length || !lineData.datasets)) ||
+                    (chartTab === 2 &&
+                      (!Object.keys(deptData).length || !deptData.datasets)) ||
+                    (chartTab === 3 &&
+                      (!Object.keys(summaryData).length ||
+                        !summaryData.datasets)) ? (
                       <Box
                         sx={{
                           display: "flex",
+                          flexDirection: "column",
                           justifyContent: "center",
                           alignItems: "center",
                           height: "100%",
@@ -1386,8 +1529,21 @@ const MainPage = ({ user, onLogout, onNavigate }) => {
                         <Typography variant="body1" color="text.secondary">
                           No data available for the selected chart.
                         </Typography>
+                        <Typography
+                          variant="body2"
+                          color="text.secondary"
+                          sx={{ mt: 1 }}
+                        >
+                          {chartTab === 0 &&
+                            "Try refreshing the page or adding some attendance records."}
+                          {chartTab === 1 &&
+                            "Weekly trends data could not be loaded."}
+                          {chartTab === 2 &&
+                            "Department statistics are not available."}
+                          {chartTab === 3 && "Annual summary data is missing."}
+                        </Typography>
                       </Box>
-                    )}
+                    ) : null}
                   </>
                 )}
               </Box>

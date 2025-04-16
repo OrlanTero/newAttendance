@@ -546,15 +546,56 @@ class Attendance {
       const checkOutTime = new Date().toISOString();
       const now = new Date().toISOString();
 
-      // Use direct SQL instead of db.updateAttendance
+      // Get the current attendance record to calculate hours worked and determine status
+      const currentRecord = await this.getById(attendanceId);
+
+      if (!currentRecord) {
+        return {
+          success: false,
+          message: "Attendance record not found",
+        };
+      }
+
+      const checkInTime = new Date(currentRecord.check_in);
+      const checkOutDateTime = new Date(checkOutTime);
+
+      // Calculate hours worked
+      const hoursWorked = (checkOutDateTime - checkInTime) / (1000 * 60 * 60);
+      console.log(`Hours worked: ${hoursWorked}`);
+
+      // Define work day parameters
+      const STANDARD_WORK_HOURS = 8; // 8 hours standard work day
+      const MINIMUM_WORK_HOURS = 4; // 4 hour rule
+
+      // Determine final status
+      let finalStatus = currentRecord.status; // Start with current status (late or present)
+
+      // Apply 4-hour rule - if worked less than 4 hours, mark as absent
+      if (hoursWorked < MINIMUM_WORK_HOURS) {
+        finalStatus = "absent";
+        console.log(
+          `Marking as absent due to less than ${MINIMUM_WORK_HOURS} hours worked`
+        );
+      }
+      // Apply undertime rule - if present but worked less than standard hours
+      else if (hoursWorked < STANDARD_WORK_HOURS) {
+        finalStatus = "undertime";
+        console.log(
+          `Marking as undertime due to less than ${STANDARD_WORK_HOURS} hours worked`
+        );
+      }
+
+      console.log(`Final status determined: ${finalStatus}`);
+
+      // Use direct SQL for the update
       return new Promise((resolve, reject) => {
         db.db.run(
           `
           UPDATE attendance
-          SET check_out = ?, updated_at = ?
+          SET check_out = ?, status = ?, updated_at = ?
           WHERE attendance_id = ?
           `,
-          [checkOutTime, now, attendanceId],
+          [checkOutTime, finalStatus, now, attendanceId],
           function (err) {
             if (err) {
               console.error(
@@ -574,7 +615,10 @@ class Attendance {
               return;
             }
 
-            console.log("Attendance record checked out successfully");
+            console.log(
+              "Attendance record checked out successfully with status:",
+              finalStatus
+            );
 
             // Get the updated record
             db.db.get(
@@ -655,7 +699,56 @@ class Attendance {
       const now = new Date().toISOString();
       const check_in = attendanceData.check_in || null;
       const check_out = attendanceData.check_out || null;
-      const status = attendanceData.status || "present";
+      
+      // Determine status based on check-in and check-out times
+      let status = attendanceData.status || "present";
+      
+      // Only apply automatic status calculation if both check-in and check-out times are provided
+      // and no specific status was requested
+      if (check_in && check_out && !attendanceData.status) {
+        // Define shift parameters
+        const SHIFT_START_HOUR = 8; // 8 AM
+        const SHIFT_START_MINUTE = 0;
+        const GRACE_PERIOD_MINUTES = 15;
+        const STANDARD_WORK_HOURS = 8;
+        const MINIMUM_WORK_HOURS = 4;
+        
+        // Parse check-in time
+        const checkInTime = new Date(check_in);
+        const checkInHour = checkInTime.getHours();
+        const checkInMinute = checkInTime.getMinutes();
+        
+        // Calculate hours worked
+        const checkOutTime = new Date(check_out);
+        const hoursWorked = (checkOutTime - checkInTime) / (1000 * 60 * 60);
+        
+        console.log(`Manual entry hours worked: ${hoursWorked}`);
+        
+        // Determine initial status based on check-in time
+        if (
+          checkInHour > SHIFT_START_HOUR || 
+          (checkInHour === SHIFT_START_HOUR && 
+           checkInMinute > SHIFT_START_MINUTE + GRACE_PERIOD_MINUTES)
+        ) {
+          status = "late";
+        } else {
+          status = "present";
+        }
+        
+        // Apply 4-hour rule - if worked less than 4 hours, mark as absent
+        if (hoursWorked < MINIMUM_WORK_HOURS) {
+          status = "absent";
+          console.log(`Marking manual entry as absent due to less than ${MINIMUM_WORK_HOURS} hours worked`);
+        } 
+        // Apply undertime rule - if present/late but worked less than standard hours
+        else if (hoursWorked < STANDARD_WORK_HOURS) {
+          status = "undertime";
+          console.log(`Marking manual entry as undertime due to less than ${STANDARD_WORK_HOURS} hours worked`);
+        }
+        
+        console.log(`Manual entry status determined: ${status}`);
+      }
+      
       const remarks = attendanceData.remarks || "Manual entry by admin";
 
       return new Promise((resolve, reject) => {
